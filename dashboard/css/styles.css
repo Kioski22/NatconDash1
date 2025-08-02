@@ -1,0 +1,394 @@
+/* Reset default styles */
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+/* Import Poppins font from Google Fonts */
+@import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;600&display=swap');
+
+body {
+    font-family: 'Poppins', Arial, sans-serif;
+    /* Apply Poppins font */
+    background-color: #f4f4f4;
+    color: #333;
+    /* Darker text color for readability */
+    line-height: 1.6;
+    /* Better readability */
+}
+
+/* Header styling */
+header {
+    background-color: #000f73;
+    /* Blue header */
+    color: white;
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+    /* Light shadow for header */
+    padding: 20px 40px;
+    /* Adjusted padding for header */
+    width: 100%;
+}
+
+/* Container for Logo and Navbar */
+.header-container {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    max-width: 1200px;
+    /* Ensure content doesn't get too wide */
+    margin: 0 auto;
+    width: 100%;
+    /* Ensure the container spans the full width */
+    flex-wrap: nowrap;
+    /* Ensure logo and nav stay on one line */
+}
+
+/* Logo Section */
+.logo {
+    display: flex;
+    align-items: center;
+    gap: 20px;
+    /* Increased gap for better spacing */
+}
+
+.logo img {
+    height: 60px;
+    /* Increased logo size */
+    width: auto;
+    /* Maintain aspect ratio */
+}
+
+.logo span {
+    font-size: 34px;
+    /* Larger logo font size */
+    font-weight: 600;
+    /* Bold text */
+    color: white;
+    /* Ensure text is white for visibility */
+    text-transform: uppercase;
+    /* Make the text more prominent */
+    letter-spacing: 2px;
+    /* Slight letter-spacing for a professional look */
+}
+
+/* Navbar styling */
+nav ul {
+    list-style: none;
+    display: flex;
+    gap: 35px;
+    /* Increased gap for navigation */
+    margin-left: auto;
+    /* Pushes nav items to the right */
+    flex-wrap: nowrap;
+    /* Prevents wrapping on larger screens */
+}
+
+nav ul li a {
+    color: white;
+    text-decoration: none;
+    font-size: 18px;
+    /* Larger text size for nav links */
+    font-weight: 500;
+    transition: all 0.3s ease;
+    /* Smooth transition */
+}
+
+nav ul li a:hover {
+    text-decoration: underline;
+    font-weight: 600;
+    /* Bold on hover */
+}
+
+/* Yellow button style only for Login and Signup */
+nav ul li a.login,
+nav ul li a.signup {
+    padding: 12px 30px;
+    /* Increased padding for buttons */
+    background-color: #ffcc00;
+    /* Yellow background for buttons */
+    border-radius: 5px;
+    /* Rounded corners for buttons */
+    transition: background-color 0.3s ease;
+    /* Smooth transition for hover effect */
+}
+
+nav ul li a.login:hover,
+nav ul li a.signup:hover {
+    background-color: #e6b800;
+    /* Darker yellow when hovered */
+    color: white;
+    /* Maintain white text when hovered */
+}
+
+/* Hamburger icon (mobile only) */
+.navbar-toggler {
+    border-color: white;
+    /* Make the border color of the hamburger white */
+    display: none;
+    /* Hide the hamburger by default */
+}
+
+.navbar-toggler-icon {
+    background-color: white;
+    /* Make the hamburger icon white */
+}
+
+/* Main content section */
+.content {
+    padding: 50px 40px;
+    /* Increased padding for better spacing */
+    max-width: 1200px;
+    margin: 0 auto;
+}
+
+/* Full width top image */
+.image-top img {
+    width: 100%;
+    height: auto;
+    border-radius: 8px;
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+    margin-bottom: 40px;
+    /* Space between image and bottom content */
+}
+
+/* Bottom content section */
+.bottom-content {
+    display: flex;
+    gap: 30px;
+    /* Larger gap between left and right sections */
+    justify-content: space-between;
+    margin-top: 50px;
+    /* More space above bottom content */
+}
+
+.left-image img {
+    width: 100%;
+    height: auto;
+    border-radius: 8px;
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+}
+
+.right-text {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+}
+
+.right-text h2 {
+    font-size: 32px;
+    /* Larger heading font */
+    font-weight: 600;
+    color: #222;
+    /* Slightly darker text color for emphasis */
+    margin-bottom: 20px;
+    /* More space below heading */
+}
+
+.right-text p {
+    font-size: 18px;
+    color: #555;
+    margin-bottom: 30px;
+    /* Space between text and button */
+}
+
+.right-text .button {
+    padding: 15px 30px;
+    /* Larger button for better visibility */
+    background-color: #ffcc00;
+    color: white;
+    text-decoration: none;
+    font-weight: 600;
+    border-radius: 5px;
+    text-align: center;
+    display: inline-block;
+    transition: background-color 0.3s ease;
+}
+
+.right-text .button:hover {
+    background-color: #e6b800;
+}
+
+/* Mobile responsiveness */
+@media screen and (max-width: 768px) {
+    header {
+        padding: 20px;
+        /* Adjusted padding for mobile */
+    }
+
+    /* Logo for mobile */
+    .logo span {
+        font-size: 28px;
+        /* Slightly smaller font on mobile */
+        text-align: center;
+        text-transform: none;
+        /* No uppercase for smaller screens */
+        letter-spacing: 1px;
+        /* Reduced letter spacing for mobile */
+    }
+
+    /* Adjust Navbar for Mobile */
+    nav ul {
+        flex-direction: column;
+        /* Stack links vertically on mobile */
+        gap: 15px;
+        /* Smaller gap for mobile */
+        padding-top: 20px;
+        /* Space between nav and content */
+        margin-left: 0;
+        /* Center the navbar */
+        width: 100%;
+        /* Ensure the full width is used */
+        text-align: center;
+        /* Center align items in mobile view */
+    }
+
+    nav ul li a {
+        font-size: 16px;
+        /* Smaller text on mobile */
+    }
+
+    .bottom-content {
+        flex-direction: column;
+        align-items: center;
+        /* Center content on mobile */
+        gap: 30px;
+    }
+
+    .right-text h2 {
+        font-size: 26px;
+        /* Smaller font size for headings */
+    }
+
+    .right-text p {
+        font-size: 16px;
+        /* Adjust text size for readability */
+    }
+
+    .right-text .button {
+        padding: 12px 25px;
+        /* Smaller button padding for mobile */
+    }
+
+    /* Ensure Hamburger Icon is only visible on mobile */
+    .navbar-toggler {
+        display: block;
+        /* Show hamburger only on mobile */
+    }
+
+    /* Hide the nav links by default */
+    nav ul {
+        display: none;
+        /* Hide the nav links initially */
+        width: 100%;
+        /* Ensure it spans the full width */
+        text-align: center;
+        /* Center align items in mobile view */
+    }
+
+    /* Show navbar links when hamburger is clicked */
+    .navbar-toggler.collapsed+nav ul {
+        display: flex;
+        /* Display the nav links */
+    }
+}
+
+/* REMOVE these or override them */
+.header-container {
+    display: flex;
+    /* Not needed if you use Bootstrap classes */
+}
+
+/* Optional: Add this for consistency */
+header {
+    background-color: #000f73 !important;
+}
+
+/* Blue full-width section with centered image */
+.program-section {
+    background-color: #000f73;
+    width: 100vw;
+    margin-left: calc(-50vw + 50%);
+    padding: 60px 0;
+}
+
+/* Wrapper centers the image */
+.program-wrapper {
+    /* where you can adjust the image */
+    display: flex;
+    justify-content: center;
+    align-items: center;
+}
+
+/* Responsive and scaled image */
+.program-image {
+    width: 100%;
+    max-width: 900px;
+    /* Limit size on large screens */
+    height: auto;
+    border-radius: 8px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+
+.program-section h2 {
+    color: white;
+    text-align: center;
+    font-size: 2.5rem;
+    font-weight: 700;
+    margin-bottom: 30px;
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
+}
+
+/* Footer CSS */
+.psme-footer .footer-logo {
+    height: 250px;
+    width: auto;
+    object-fit: contain;
+}
+
+.psme-footer .footer-main {
+    border-top: 4px solid #fefeff;
+    /* Optional top border */
+}
+
+.psme-footer .footer-developer {
+    background-color: #00055c;
+    /* Dark blue */
+    font-size: 1.0rem;
+}
+
+.footer-main p {
+    font-size: 1.5rem;
+    /* Adjust as needed */
+}
+
+.footer-main p.fw-bold {
+    font-size: 1.3rem;
+}
+
+/* Blur the background when loading overlay is active */
+body.loading {
+  overflow: hidden;
+}
+
+body.loading .content,
+body.loading header,
+body.loading footer {
+  filter: blur(5px);
+  pointer-events: none;
+}
+
+/* Centered loading overlay */
+#loadingOverlay {
+  display: none;
+  position: fixed;
+  z-index: 9999;
+  inset: 0;
+  background-color: rgba(0, 0, 0, 0.6);
+  backdrop-filter: blur(8px);
+  justify-content: center;
+  align-items: center;
+  flex-direction: column;
+}
