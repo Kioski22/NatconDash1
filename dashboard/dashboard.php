@@ -148,6 +148,12 @@ session_start(); // Make sure session is started at the top of the file
       color: var(--primary-color);
       border: 1px solid rgba(37, 99, 235, 0.2);
     }
+    
+    .hover-link:hover {
+      color: var(--secondary-color) !important;
+      transform: translateX(5px);
+      transition: all 0.3s ease;
+    }
   </style>
   </head>
   <body>
@@ -331,10 +337,10 @@ session_start(); // Make sure session is started at the top of the file
           <img src="../image/psme_logo.png" alt="PSME Logo" class="me-3 rounded-custom shadow-sm" style="height: 60px;">
           <div>
             <h5 class="fw-bold mb-1 text-white">Philippine Society of Mechanical Engineers</h5>
-            <p class="text-muted mb-0 fw-medium">Excellence in Engineering Innovation</p>
+            <p class="text-light mb-0 fw-medium">Excellence in Engineering Innovation</p>
           </div>
         </div>
-        <div class="text-muted">
+        <div class="text-light">
           <p class="mb-3 d-flex align-items-start">
             <i class="fas fa-map-marker-alt me-3 mt-1 text-primary"></i>
             <span>19 Scout Bayoran St., Brgy. South Triangle<br>Quezon City, Philippines</span>
@@ -355,22 +361,22 @@ session_start(); // Make sure session is started at the top of the file
             <h6 class="fw-bold mb-3 text-white">Quick Links</h6>
             <ul class="list-unstyled">
               <li class="mb-2">
-                <a href="#" class="text-muted text-decoration-none d-flex align-items-center">
+                <a href="#" class="text-light text-decoration-none d-flex align-items-center hover-link">
                   <i class="fas fa-chevron-right me-2 small text-primary"></i>Home
                 </a>
               </li>
               <li class="mb-2">
-                <a href="#" class="text-muted text-decoration-none d-flex align-items-center">
+                <a href="#" class="text-light text-decoration-none d-flex align-items-center hover-link">
                   <i class="fas fa-chevron-right me-2 small text-primary"></i>About Us
                 </a>
               </li>
               <li class="mb-2">
-                <a href="#" class="text-muted text-decoration-none d-flex align-items-center">
+                <a href="#" class="text-light text-decoration-none d-flex align-items-center hover-link">
                   <i class="fas fa-chevron-right me-2 small text-primary"></i>Contact
                 </a>
               </li>
               <li class="mb-2">
-                <a href="#" class="text-muted text-decoration-none d-flex align-items-center">
+                <a href="#" class="text-light text-decoration-none d-flex align-items-center hover-link">
                   <i class="fas fa-chevron-right me-2 small text-primary"></i>Function Room
                 </a>
               </li>
@@ -379,22 +385,22 @@ session_start(); // Make sure session is started at the top of the file
           <div class="col-md-6">
             <h6 class="fw-bold mb-3 text-white">Connect With Us</h6>
             <div class="d-flex gap-3 mb-4">
-              <a href="#" class="text-muted fs-5">
+              <a href="#" class="text-light fs-5 hover-link">
                 <i class="fab fa-facebook"></i>
               </a>
-              <a href="#" class="text-muted fs-5">
+              <a href="#" class="text-light fs-5 hover-link">
                 <i class="fab fa-twitter"></i>
               </a>
-              <a href="#" class="text-muted fs-5">
+              <a href="#" class="text-light fs-5 hover-link">
                 <i class="fab fa-linkedin"></i>
               </a>
-              <a href="#" class="text-muted fs-5">
+              <a href="#" class="text-light fs-5 hover-link">
                 <i class="fab fa-instagram"></i>
               </a>
             </div>
-            <div class="bg-dark rounded-custom p-3 border border-secondary">
+            <div class="bg-secondary bg-opacity-25 rounded-custom p-3 border border-secondary border-opacity-50">
               <h6 class="fw-medium mb-2 text-white small">Stay Updated</h6>
-              <p class="text-muted small mb-0">Get the latest convention updates and announcements.</p>
+              <p class="text-light small mb-0">Get the latest convention updates and announcements.</p>
             </div>
           </div>
         </div>
@@ -407,10 +413,10 @@ session_start(); // Make sure session is started at the top of the file
     <div class="container">
       <div class="row align-items-center">
         <div class="col-md-6">
-          <p class="mb-0 small text-white-50">© 2025 PSME. All rights reserved.</p>
+          <p class="mb-0 small text-white opacity-75">© 2025 PSME. All rights reserved.</p>
         </div>
         <div class="col-md-6 text-md-end">
-          <p class="mb-0 small text-white-50">
+          <p class="mb-0 small text-white opacity-75">
             Developed with <i class="fas fa-heart text-danger mx-1"></i> by 
             <strong class="text-white">PSME - ICTO</strong> and Jemuel Agban
           </p>
