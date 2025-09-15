@@ -275,7 +275,7 @@ session_start(); // Make sure session is started at the top of the file
                 and comprehensive evaluation systems designed for modern conventions.
               </p>
               <div class="d-flex flex-column flex-sm-row gap-3">
-                <a href="#" class="btn btn-warning btn-lg rounded-pill px-5 py-3 fw-medium text-white">
+                <a href="function_rooms.php" class="btn btn-warning btn-lg rounded-pill px-5 py-3 fw-medium text-white">
                   <i class="fas fa-door-open me-2"></i>Enter Function Room
                 </a>
                 <a href="#" class="btn btn-outline-secondary btn-lg rounded-pill px-5 py-3 fw-medium">
@@ -376,7 +376,7 @@ session_start(); // Make sure session is started at the top of the file
                 </a>
               </li>
               <li class="mb-2">
-                <a href="#" class="text-light text-decoration-none d-flex align-items-center hover-link">
+                <a href="function_rooms.php" class="text-light text-decoration-none d-flex align-items-center hover-link">
                   <i class="fas fa-chevron-right me-2 small text-primary"></i>Function Room
                 </a>
               </li>
