@@ -53,108 +53,254 @@ function userHasCompletedAny($conn, $userId) {
     return false;
 }
 
+// NEW: fetch user eligibility flags from users table (with fallback to common typo)
+function fetchUserEligibility($conn, $userId) {
+    $defaults = [
+        'attendance' => 0,
+        'appearance' => 0,
+        'cpd'        => 0,
+    ];
+    if (!$userId) return $defaults;
+
+    $sql = "SELECT * FROM users WHERE id = ? LIMIT 1";
+    if ($stmt = $conn->prepare($sql)) {
+        $stmt->bind_param('i', $userId);
+        $stmt->execute();
+        $row = $stmt->get_result()->fetch_assoc();
+        $stmt->close();
+
+        if (!$row) return $defaults;
+
+        // Support both correct and possible typo column name
+        $att = isset($row['eligible_certificate_attendance'])
+            ? (int)$row['eligible_certificate_attendance']
+            : (isset($row['eligible_certifcate_attendance']) ? (int)$row['eligible_certifcate_attendance'] : 0);
+
+        return [
+            'attendance' => $att,
+            'appearance' => isset($row['eligible_certificate_appearance']) ? (int)$row['eligible_certificate_appearance'] : 0,
+            'cpd'        => isset($row['eligible_cpd_certificate']) ? (int)$row['eligible_cpd_certificate'] : 0,
+        ];
+    }
+
+    return $defaults;
+}
+
 $conventionOver = isConventionOver($today, $lastConventionDate);
 $userCompletedAny = userHasCompletedAny($conn, $userId);
+
+// NEW: Load eligibility once on page load
+$userEligibility = fetchUserEligibility($conn, $userId);
+$eligMap = [
+    'attendance' => ($userId && $userEligibility['attendance'] === 1),
+    'appearance' => ($userId && $userEligibility['appearance'] === 1),
+    'cpd'        => ($userId && $userEligibility['cpd'] === 1),
+];
+
+// Current styling constants
+$THEME = [
+    'primary' => '#0B2A59',
+    'accent' => '#1a4189',
+    'text' => '#FFFFFF',
+    'text-muted' => '#D6E0FF'
+];
 ?>
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="utf-8" />
-  <title>Function Rooms — National Convention</title>
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet" />
-  <style>
-    body { background: #0b2a59; color: #fff; font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial; }
-    .hero { padding: 48px 0; }
-    .card-day { border-radius: 14px; overflow: hidden; display:flex; align-items:center; justify-content:space-between; padding:18px 22px; background:rgba(255,255,255,0.05); border: 2px solid rgba(255,255,255,0.18); cursor:pointer; transition: transform .12s ease, box-shadow .12s ease; }
-    .card-day.disabled { opacity: 0.45; cursor: default; transform: none !important; box-shadow: none !important; }
-    .card-day.active { transform: translateY(-6px); box-shadow: 0 12px 30px rgba(0,0,0,0.35); }
-    .small-note { color: #d6e0ff; max-width: 420px; }
-    .cert-icon { width:160px; height:160px; border-radius:16px; background:#f2f2f2; color:#222; display:flex; align-items:center; justify-content:center; font-weight:700; font-size:22px; box-shadow: 0 6px 18px rgba(0,0,0,0.12); cursor:pointer; }
-    .cert-icon.disabled { opacity: 0.4; cursor: default; }
-    .admin-panel { background:#fff; color:#222; border-radius:8px; padding:16px; }
-  </style>
+    <meta charset="utf-8">
+    <title>73rd PEME National Convention</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        body {
+            background: <?= $THEME['primary'] ?>;
+            color: <?= $THEME['text'] ?>;
+            font-family: system-ui, -apple-system, "Segoe UI", Roboto;
+        }
+        .nav-header {
+            background: <?= $THEME['accent'] ?>;
+            padding: 15px 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .nav-header img.logo {
+            height: 40px;
+        }
+        .nav-header .back-link {
+            color: <?= $THEME['text'] ?>;
+            text-decoration: none;
+        }
+        .page-title {
+            background: white;
+            color: black;
+            padding: 15px;
+            text-align: center;
+            font-weight: 600;
+            margin-bottom: 30px;
+        }
+        .function-room-card {
+            background: rgba(255,255,255,0.1);
+            border-radius: 10px;
+            padding: 20px;
+            margin-bottom: 15px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            border: 1px solid rgba(255,255,255,0.2);
+        }
+        .function-room-card:hover:not(.disabled) {
+            transform: translateY(-5px);
+            background: rgba(255,255,255,0.15);
+        }
+        .function-room-card.disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+        .function-room-date {
+            color: <?= $THEME['text-muted'] ?>;
+            font-size: 0.9rem;
+        }
+        .certificate-section {
+            margin-top: 40px;
+            text-align: center;
+        }
+        .certificate-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 20px;
+            margin-top: 20px;
+        }
+        .certificate-item {
+            background: rgba(255,255,255,0.1);
+            padding: 20px;
+            border-radius: 10px;
+            text-align: center;
+        }
+        .certificate-item.disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+        .certificate-icon {
+            width: 80px;
+            height: 80px;
+            margin: 0 auto 15px;
+            background: white;
+            border-radius: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+    </style>
 </head>
 <body>
-  <div class="container hero">
-    <div class="row align-items-start">
-      <div class="col-lg-8">
-        <h1 class="text-center mb-4" style="color:#fff; font-weight:800;">FUNCTION ROOMS</h1>
-
-        <div class="row">
-          <div class="col-md-6">
-            <p class="small-note">
-              Explore the seminars for Day 1 to Day 3. Cards are clickable based on admin settings.
-            </p>
-
-            <div class="list-group mt-3">
-              <?php foreach ($days as $d):
-                $dayId = (int)$d['id'];
-                $label = htmlspecialchars($d['label']);
-                $dayDate = $d['day_date'];
-                $isEnabled = ((int)$d['is_enabled'] === 1);
-                $isToday   = ($today === $dayDate);
-
-                if ($roomMode === 'date_strict') {
-                    $isActive = $isToday && $isEnabled;
-                } else {
-                    $isActive = $isEnabled;
-                }
-
-                $cardClasses = "card-day mb-3 " . ($isActive ? "active" : "disabled");
-                $targetUrl = $isActive ? "function_room_detail.php?day_id={$dayId}" : "#";
-              ?>
-                <a href="<?= $isActive ? htmlspecialchars($targetUrl) : '#' ?>" class="text-decoration-none">
-                  <div class="<?= $cardClasses ?>" role="button">
-                    <div style="font-weight:800; font-size:16px;"><?= $label ?></div>
-                    <div style="opacity:0.9; font-size:14px;"><?= (new DateTime($dayDate))->format('F j, Y') ?></div>
-                  </div>
-                </a>
-              <?php endforeach; ?>
-            </div>
-          </div>
-
-          <div class="col-md-6 text-center">
-            <h4 style="font-weight:700; color:#fff; margin-top:6px;">GENERATE YOUR CERTIFICATES</h4>
-            <div class="d-flex justify-content-center gap-3 flex-wrap mt-3">
-              <?php
-                $certs = [
-                  ['key'=>'attendance','label'=>'Certificate of Attendance'],
-                  ['key'=>'appearance','label'=>'Certificate of Appearance'],
-                  ['key'=>'cpd','label'=>'CPD Form Certificate']
-                ];
-                foreach ($certs as $c):
-                  $canGenerate = $conventionOver && $userCompletedAny && $userId;
-              ?>
-                <div class="text-center">
-                  <div class="cert-icon <?= $canGenerate ? '' : 'disabled' ?>"
-                       data-cert="<?= htmlspecialchars($c['key']) ?>"
-                       title="<?= $canGenerate ? 'Click to generate' : 'Not yet available' ?>">
-                    <?= strtoupper(substr($c['key'],0,2)) ?>
-                  </div>
-                  <div style="margin-top:10px; color:#e8eefc; font-size:14px;"><?= htmlspecialchars($c['label']) ?></div>
-                </div>
-              <?php endforeach; ?>
-            </div>
-          </div>
-        </div>
-      </div>
+    <!-- Navigation Header -->
+    <div class="nav-header">
+        <img src="../assets/logo.png" alt="PEME Logo" class="logo">
+        <a href="dashboard.php" class="back-link">← Back to Home</a>
     </div>
-  </div>
 
-<script>
-(function(){
-  document.addEventListener('click', function(e){
-    const el = e.target.closest('.cert-icon');
-    if (!el) return;
-    if (el.classList.contains('disabled')) {
-      alert(el.title || 'Not available');
-      return;
+    <!-- Page Title -->
+    <div class="page-title">
+        FUNCTION ROOMS
+    </div>
+
+    <!-- Acknowledgement of day.php changes -->
+    <div class="container mb-3">
+        <div class="alert alert-info small">
+            <strong>Note:</strong> The Day page (dashboard/day.php) was updated.
+            Changes include:
+            <ul class="mb-0">
+                <li>day.php now resolves the requested day from <code>?day</code>, <code>?day_id</code> or by matching today's date in the DB.</li>
+                <li>function rooms and speakers are fetched dynamically from the <code>function_rooms</code> and <code>speakers</code> tables.</li>
+                <li>Time formatting helper (fmt_time) and safe HTML escaping are used.</li>
+                <li>Links on this page point to <code>day.php?day_id=&lt;id&gt;</code> so the new resolver logic is used.</li>
+            </ul>
+        </div>
+    </div>
+    
+    <div class="container">
+        <div class="row">
+            <!-- Function Room Cards -->
+            <div class="col-md-8">
+                <p class="text-muted mb-4">
+                    Explore the seminars for Day 1 to Day 3.<br>
+                    Each day features different speakers and technical topics. Please complete the attendance, quiz, and evaluation for each session to ensure your participation is recorded.
+                </p>
+
+                <?php foreach ($days as $d):
+                    $dayId = (int)$d['id'];
+                    $label = htmlspecialchars($d['label']);
+                    $dayDate = $d['day_date'];
+                    $isEnabled = ((int)$d['is_enabled'] === 1);
+                    $isToday = ($today === $dayDate);
+                    $isActive = ($roomMode === 'date_strict') ? ($isToday && $isEnabled) : $isEnabled;
+                ?>
+                <div class="function-room-card <?= $isActive ? '' : 'disabled' ?>" 
+                     onclick="<?= $isActive ? "window.location='day.php?day_id={$dayId}'" : '' ?>">
+                    <h4><?= $label ?></h4>
+                    <div class="function-room-date">
+                        <?= (new DateTime($dayDate))->format('F j, Y') ?>
+                    </div>
+                </div>
+                <?php endforeach; ?>
+
+                <!-- Evaluation Card -->
+                <div class="function-room-card">
+                    <h4>NATIONAL CONVENTION EVALUATION</h4>
+                    <div class="function-room-date">Required for certificate generation</div>
+                </div>
+            </div>
+
+            <!-- Certificates Section -->
+            <div class="col-md-4">
+                <div class="certificate-section">
+                    <h4 class="mb-4">GENERATE YOUR CERTIFICATES</h4>
+                    
+                    <?php
+                    $certificates = [
+                        ['key' => 'attendance', 'label' => 'Certificate of Attendance', 'icon' => 'CA'],
+                        ['key' => 'appearance', 'label' => 'Certificate of Appearance', 'icon' => 'CP'],
+                        ['key' => 'cpd', 'label' => 'CPD Form Certificate', 'icon' => 'CPD']
+                    ];
+                    ?>
+
+                    <div class="certificate-grid">
+                        <?php foreach ($certificates as $cert): 
+                            $isEligible = !empty($eligMap[$cert['key']]);
+                        ?>
+                        <div class="certificate-item <?= $isEligible ? '' : 'disabled' ?>"
+                             data-type="<?= htmlspecialchars($cert['key']) ?>"
+                             data-enabled="<?= $isEligible ? '1' : '0' ?>"
+                             <?= $isEligible ? "onclick=\"generateCertificate('{$cert['key']}')\"" : "title='Not eligible yet'" ?>>
+                            <div class="certificate-icon">
+                                <?= $cert['icon'] ?>
+                            </div>
+                            <div class="certificate-label">
+                                <?= htmlspecialchars($cert['label']) ?>
+                            </div>
+                        </div>
+                        <?php endforeach; ?>
+                    </div>
+
+                    <?php if (!$userId): ?>
+                        <div class="text-warning small mt-2">Please log in to generate certificates.</div>
+                    <?php endif; ?>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+    // client-side guard (in case someone clicks disabled)
+    const ELIG = <?= json_encode($eligMap, JSON_UNESCAPED_SLASHES) ?>;
+    function generateCertificate(type) {
+        if (!ELIG[type]) {
+            alert('You are not yet eligible for this certificate.');
+            return;
+        }
+        window.location.href = 'generate_certificate.php?type=' + encodeURIComponent(type);
     }
-    const type = el.dataset.cert;
-    window.location.href = 'generate_certificate.php?type=' + encodeURIComponent(type);
-  });
-})();
-</script>
+    </script>
 </body>
 </html>

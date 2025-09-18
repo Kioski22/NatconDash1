@@ -16,18 +16,18 @@ session_start(); // Make sure session is started at the top of the file
   <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
   
   <!-- Google Fonts -->
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 
   <!-- Custom CSS -->
   <link rel="stylesheet" href="css/styles.css">
   
   <style>
     :root {
-      --primary-color: #2563eb;
-      --primary-dark: #1d4ed8;
+      --primary-color: #111e6c;
+      --primary-dark: #1116ec;
       --primary-light: #dbeafe;
-      --secondary-color: #f59e0b;
-      --secondary-dark: #d97706;
+      --secondary-color: #ffa200ff;
+      --secondary-dark: #e27900ff;
       --success-color: #10b981;
       --dark-color: #1f2937;
       --light-gray: #f8fafc;
@@ -35,7 +35,7 @@ session_start(); // Make sure session is started at the top of the file
     }
     
     * {
-      font-family: 'Inter', sans-serif;
+      font-family: 'Poppins', sans-serif;
     }
     
     .navbar {
@@ -84,6 +84,10 @@ session_start(); // Make sure session is started at the top of the file
       background: linear-gradient(135deg, var(--secondary-dark), var(--secondary-color));
       transform: translateY(-2px);
       box-shadow: 0 8px 25px rgba(245, 158, 11, 0.4);
+    }
+
+    body {
+      background: var(--primary-color);
     }
     
     .hero-section {
@@ -154,6 +158,79 @@ session_start(); // Make sure session is started at the top of the file
       transform: translateX(5px);
       transition: all 0.3s ease;
     }
+
+    /* Prevent horizontal scrollbar in footer */
+    body {
+      overflow-x: hidden;
+    }
+
+    footer {
+      overflow-x: hidden;
+      width: 100%;
+      box-sizing: border-box;
+    }
+
+    footer .container {
+      max-width: 100%;
+      overflow-x: hidden;
+    }
+
+    footer p, footer span {
+      word-wrap: break-word;
+      overflow-wrap: break-word;
+      hyphens: auto;
+      max-width: 100%;
+    }
+
+    /* Specific fixes for long email addresses */
+    footer .text-light span {
+      word-break: break-all;
+      line-height: 1.4;
+    }
+
+    /* Ensure footer content doesn't overflow */
+    footer .row {
+      margin-left: 0;
+      margin-right: 0;
+    }
+
+    footer .col-lg-6, footer .col-md-6 {
+      padding-left: 15px;
+      padding-right: 15px;
+      overflow: hidden;
+    }
+
+    /* Make sure long organization name wraps properly */
+    footer h5 {
+      word-wrap: break-word;
+      line-height: 1.3;
+    }
+
+    /* Responsive adjustments for smaller screens */
+    @media (max-width: 768px) {
+      footer .d-flex {
+        flex-wrap: wrap;
+      }
+      
+      footer .text-light span {
+        font-size: 14px;
+      }
+      
+      footer h5 {
+        font-size: 1.1rem;
+      }
+    }
+
+    @media (max-width: 576px) {
+      footer .container {
+        padding-left: 10px;
+        padding-right: 10px;
+      }
+      
+      footer .text-light span {
+        font-size: 13px;
+      }
+    }
   </style>
   </head>
   <body>
@@ -178,10 +255,10 @@ session_start(); // Make sure session is started at the top of the file
         <div class="collapse navbar-collapse" id="navbarNav">
           <ul class="navbar-nav ms-auto align-items-center">
             <li class="nav-item">
-              <a class="nav-link active fw-semibold px-3" href="#">Home</a>
+              <a class="nav-link active fw-semibold px-3" href="dashboard.php">Home</a>
             </li>
             <li class="nav-item">
-              <a class="nav-link fw-semibold px-3" href="#">About</a>
+              <a class="nav-link fw-semibold px-3" href="about.php">About</a>
             </li>
             <li class="nav-item">
               <a class="nav-link fw-semibold px-3" href="#">Contact</a>
@@ -219,19 +296,19 @@ session_start(); // Make sure session is started at the top of the file
     </nav>
 
   <!-- Main Content Section -->
-  <main class="content" style="margin-top: 85px;">
+  <main class="content">
     <!-- Top Full Width Image -->
     <section class="hero-section py-5">
       <div class="container">
         <div class="row align-items-center min-vh-75">
           <div class="col-12 text-center">
             <div class="mb-4">
-              <span class="badge badge-custom fs-6 px-4 py-2 rounded-pill mb-3">
+              <span class="badge badge-custom fs-6 px-4 py-2 rounded-pill mt-5 mb-3">
                 <i class="fas fa-calendar-alt me-2"></i>73rd National Convention
               </span>
             </div>
-            <h1 class="display-3 fw-bold mb-4 text-gradient">Welcome to PSME</h1>
-            <p class="lead text-muted mb-5 mx-auto" style="max-width: 600px;">
+            <h1 class="display-3 fw-bold mb-4 text-gradient">Welcome to PSME <br> National Convention</h1>
+            <p class="lead mb-5 mx-auto" style="max-width: 600px;">
               Join us for the most prestigious mechanical engineering convention in the Philippines. 
               Connect, learn, and innovate with industry leaders.
             </p>
@@ -251,12 +328,12 @@ session_start(); // Make sure session is started at the top of the file
     <!-- Bottom Section with Image on Left and Text on Right -->
     <section id="function-room" class="function-room-section py-5">
       <div class="container">
-        <div class="row align-items-center g-5">
+        <div class="row align-items-center g-5 mb-5">
           <div class="col-lg-6 mb-4 mb-lg-0">
             <div class="position-relative">
               <img src="../image/natcon banner.png" alt="Function Room Image" class="img-fluid rounded-custom shadow-custom">
               <div class="position-absolute top-0 start-0 m-3">
-                <span class="badge bg-success text-white fs-6 px-3 py-2 rounded-pill">
+                <span class="badge bg-success text-white fs-8 px-3 py-2 rounded-pill">
                   <i class="fas fa-star me-1"></i>Featured
                 </span>
               </div>
@@ -265,7 +342,7 @@ session_start(); // Make sure session is started at the top of the file
           <div class="col-lg-6">
             <div class="ps-lg-4">
               <div class="mb-4">
-                <span class="badge badge-custom fs-6 px-3 py-2 rounded-pill mb-3">
+                <span class="badge badge-custom fs-8 px-3 py-2 rounded-pill mb-3">
                   <i class="fas fa-users me-2"></i>Interactive Experience
                 </span>
               </div>
@@ -342,16 +419,16 @@ session_start(); // Make sure session is started at the top of the file
         </div>
         <div class="text-light">
           <p class="mb-3 d-flex align-items-start">
-            <i class="fas fa-map-marker-alt me-3 mt-1 text-primary"></i>
+            <i class="fas fa-map-marker-alt me-3 mt-1 text-primary flex-shrink-0"></i>
             <span>19 Scout Bayoran St., Brgy. South Triangle<br>Quezon City, Philippines</span>
           </p>
-          <p class="mb-3 d-flex align-items-center">
-            <i class="fas fa-phone me-3 text-primary"></i>
+          <p class="mb-3 d-flex align-items-start">
+            <i class="fas fa-phone me-3 mt-1 text-primary flex-shrink-0"></i>
             <span>(02) 7752-2527 | (02) 8285-6585</span>
           </p>
-          <p class="mb-0 d-flex align-items-center">
-            <i class="fas fa-envelope me-3 text-primary"></i>
-            <span>membership@psmeinc.org.ph | icto@psmeinc.org.ph</span>
+          <p class="mb-0 d-flex align-items-start">
+            <i class="fas fa-envelope me-3 mt-1 text-primary flex-shrink-0"></i>
+            <span class="small">membership@psmeinc.org.ph<br class="d-sm-none"> | <br class="d-sm-none">icto@psmeinc.org.ph</span>
           </p>
         </div>
       </div>
@@ -361,12 +438,12 @@ session_start(); // Make sure session is started at the top of the file
             <h6 class="fw-bold mb-3 text-white">Quick Links</h6>
             <ul class="list-unstyled">
               <li class="mb-2">
-                <a href="#" class="text-light text-decoration-none d-flex align-items-center hover-link">
+                <a href="dashboard.php" class="text-light text-decoration-none d-flex align-items-center hover-link">
                   <i class="fas fa-chevron-right me-2 small text-primary"></i>Home
                 </a>
               </li>
               <li class="mb-2">
-                <a href="#" class="text-light text-decoration-none d-flex align-items-center hover-link">
+                <a href="about.php" class="text-light text-decoration-none d-flex align-items-center hover-link">
                   <i class="fas fa-chevron-right me-2 small text-primary"></i>About Us
                 </a>
               </li>
@@ -411,11 +488,11 @@ session_start(); // Make sure session is started at the top of the file
   <!-- Bottom Footer -->
   <div class="py-3 position-relative" style="background: linear-gradient(135deg, var(--primary-color), var(--primary-dark));">
     <div class="container">
-      <div class="row align-items-center">
-        <div class="col-md-6">
-          <p class="mb-0 small text-white opacity-75">© 2025 PSME. All rights reserved.</p>
+      <div class="row align-items-center g-2">
+        <div class="col-md-6 col-12">
+          <p class="mb-0 small text-white opacity-75 text-center text-md-start">© 2025 PSME. All rights reserved.</p>
         </div>
-        <div class="col-md-6 text-md-end">
+        <div class="col-md-6 col-12 text-center text-md-end">
           <p class="mb-0 small text-white opacity-75">
             Developed with <i class="fas fa-heart text-danger mx-1"></i> by 
             <strong class="text-white">PSME - ICTO</strong> and Jemuel Agban

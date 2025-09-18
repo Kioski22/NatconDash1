@@ -1,2 +1,11 @@
 # Auto detect text files and perform LF normalization
 * text=auto
+
+
+SMTP_HOST=smtp.gmail.com
+SMTP_PORT=587
+SMTP_SECURE=tls
+SMTP_USER=icto@psmeinc.org.ph
+SMTP_PASS=cxvr kguz adui qjjo
+SMTP_FROM=icto@psmeinc.org.ph
+SMTP_FROM_NAME="NatCon Support"
