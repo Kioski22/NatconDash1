@@ -1,7 +1,10 @@
 <?php
 session_start(); // Make sure session is started at the top of the file
-?>
 
+// Add these helper vars right after session_start()
+$isLoggedIn = isset($_SESSION['user_id']);
+$userName = $_SESSION['user_name'] ?? 'Account';
+?>
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -263,12 +266,27 @@ session_start(); // Make sure session is started at the top of the file
             <li class="nav-item">
               <a class="nav-link fw-semibold px-3" href="#">Contact</a>
             </li>
+
             <li class="nav-item ms-3">
-              <?php if (isset($_SESSION['user']['id'])): ?>
-                <a class="btn btn-outline-danger rounded-pill px-4 py-2" href="../Credentials/logout.php">
-                  <i class="fas fa-sign-out-alt me-2"></i>Logout
-                </a>
+              <?php if ($isLoggedIn): ?>
+                <!-- Logged-in navbar (user dropdown) -->
+                <div class="dropdown">
+                  <button class="btn btn-outline-primary rounded-pill px-4 py-2 fw-medium dropdown-toggle d-flex align-items-center" type="button" data-bs-toggle="dropdown" aria-expanded="false">
+                    <span class="me-2 d-inline-flex justify-content-center align-items-center rounded-circle bg-primary text-white" style="width:28px;height:28px;">
+                      <?php echo strtoupper(substr($userName,0,1)); ?>
+                    </span>
+                    <span class="d-none d-sm-inline"><?php echo htmlspecialchars($userName, ENT_QUOTES); ?></span>
+                  </button>
+                  <ul class="dropdown-menu dropdown-menu-end shadow">
+                    <li><a class="dropdown-item" href="dashboard.php"><i class="fas fa-home me-2 text-primary"></i>Dashboard</a></li>
+                    <li><a class="dropdown-item" href="function_rooms.php"><i class="fas fa-door-open me-2 text-primary"></i>Function Room</a></li>
+                    <li><a class="dropdown-item" href="../Credentials/forgot_password.php"><i class="fas fa-key me-2 text-primary"></i>Change Password</a></li>
+                    <li><hr class="dropdown-divider"></li>
+                    <li><a class="dropdown-item text-danger" href="../Credentials/logout.php"><i class="fas fa-sign-out-alt me-2"></i>Logout</a></li>
+                  </ul>
+                </div>
               <?php else: ?>
+                <!-- Guest navbar -->
                 <button id="customLoginBtn" class="btn btn-primary rounded-pill px-4 py-2 me-2 fw-medium">
                   <i class="fas fa-sign-in-alt me-2"></i>Login
                 </button>
@@ -280,8 +298,8 @@ session_start(); // Make sure session is started at the top of the file
           </ul>
         </div>
 
-        <!-- Loading Overlay -->
-        <?php if (!isset($_SESSION['user']['id'])): ?>
+        <!-- Loading Overlay only for guests -->
+        <?php if (!$isLoggedIn): ?>
           <div id="loadingOverlay" class="position-fixed top-0 start-0 w-100 h-100 d-none justify-content-center align-items-center" style="background: rgba(255,255,255,0.98); backdrop-filter: blur(20px); z-index: 9999;">
             <div class="text-center">
               <div class="spinner-border text-primary mb-3" role="status" style="width: 3rem; height: 3rem;">
@@ -511,19 +529,16 @@ session_start(); // Make sure session is started at the top of the file
     const loginBtn = document.getElementById('customLoginBtn');
     const signupBtn = document.getElementById('customSignupBtn');
     const overlay = document.getElementById('loadingOverlay');
-
     function handleRedirect(targetURL) {
-      overlay.classList.remove('d-none');
-      overlay.classList.add('d-flex');
-      setTimeout(() => {
-        window.location.href = targetURL;
-      }, 2000);
+      if (overlay) {
+        overlay.classList.remove('d-none');
+        overlay.classList.add('d-flex');
+      }
+      setTimeout(() => { window.location = targetURL; }, 800);
     }
-
     if (loginBtn) {
       loginBtn.addEventListener('click', () => handleRedirect('../Credentials/login.php'));
     }
-
     if (signupBtn) {
       signupBtn.addEventListener('click', () => handleRedirect('../Credentials/signup.php'));
     }

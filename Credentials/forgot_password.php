@@ -14,7 +14,7 @@ $csrf = $_SESSION['csrf_token'];
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
   <style>
     body{min-height:100vh;display:flex;align-items:center;justify-content:center;background:#f5f7fb;font-family:system-ui,Segoe UI,Roboto}
-    .card{width:100%;max-width:440px;border-radius:14px}
+    .card{width:100%;max-width:480px;border-radius:14px}
     .hidden{display:none!important}
   </style>
 </head>
@@ -36,18 +36,26 @@ $csrf = $_SESSION['csrf_token'];
       <!-- Step 1: Request OTP -->
       <form id="formRequest">
         <div class="mb-3">
-          <label class="form-label">Email</label>
-          <input id="email" name="email" type="email" class="form-control" required autocomplete="email" maxlength="190">
+          <label class="form-label" for="email">Email</label>
+          <input id="email" name="email" type="email" class="form-control" required
+                 autocomplete="email" maxlength="190"
+                 placeholder="name@example.com" title="Enter your account email">
         </div>
-        <button id="btnRequest" class="btn btn-primary w-100" type="submit">Send OTP</button>
+        <button id="btnRequest" class="btn btn-primary w-100" type="submit">
+          <span class="spinner-border spinner-border-sm me-2 d-none" id="spRequest" role="status" aria-hidden="true"></span>
+          Send OTP
+        </button>
         <input type="hidden" id="csrf" value="<?= htmlspecialchars($csrf, ENT_QUOTES) ?>">
       </form>
 
       <!-- Step 2: Verify OTP + set new password -->
       <form id="formReset" class="hidden mt-3">
+        <p class="small text-muted mb-2">We sent a 6‑digit code to <strong id="emailMask"></strong>. Check your Inbox/Spam.</p>
         <div class="mb-2">
-          <label class="form-label">6-digit OTP</label>
-          <input id="otp" name="otp" inputmode="numeric" pattern="\\d{6}" minlength="6" maxlength="6" class="form-control" required>
+          <label class="form-label" for="otp">6-digit OTP</label>
+          <input id="otp" name="otp" inputmode="numeric" pattern="[0-9]{6}"
+                 minlength="6" maxlength="6" class="form-control" required
+                 placeholder="123456" title="Enter the 6-digit code">
         </div>
         <div class="mb-2">
           <label class="form-label">New password</label>
@@ -58,9 +66,17 @@ $csrf = $_SESSION['csrf_token'];
           <input id="confirmpwd" type="password" class="form-control" minlength="8" required autocomplete="new-password">
         </div>
         <div class="d-flex justify-content-between align-items-center">
-          <button id="btnReset" class="btn btn-success" type="submit">Reset Password</button>
-          <button id="btnResend" class="btn btn-link" type="button" disabled>Resend OTP (<span id="cd">60</span>s)</button>
+          <button id="btnReset" class="btn btn-success" type="submit">
+            <span class="spinner-border spinner-border-sm me-2 d-none" id="spReset" role="status" aria-hidden="true"></span>
+            Reset Password
+          </button>
+          <button id="btnResend" class="btn btn-link" type="button" disabled>
+            Resend OTP (<span id="cd">15</span>s)
+          </button>
         </div>
+        <p class="small text-muted mt-2 mb-0">
+          If you don’t receive the email, wait 1–2 minutes or contact support.
+        </p>
       </form>
     </div>
   </div>
@@ -69,12 +85,13 @@ $csrf = $_SESSION['csrf_token'];
   <script>
     const toastEl = document.getElementById('toast');
     const toastBody = document.getElementById('toastBody');
-    function notify(msg, ok=true, delay=1800){
+    function notify(msg, ok=true, delay=2000){
       toastEl.classList.remove('text-bg-success','text-bg-danger','text-bg-primary');
       toastEl.classList.add(ok ? 'text-bg-success':'text-bg-danger');
       toastBody.textContent = msg;
       new bootstrap.Toast(toastEl, {delay}).show();
     }
+
     const emailEl = document.getElementById('email');
     const formReq = document.getElementById('formRequest');
     const formRes = document.getElementById('formReset');
@@ -83,11 +100,18 @@ $csrf = $_SESSION['csrf_token'];
     const btnResend = document.getElementById('btnResend');
     const cdEl = document.getElementById('cd');
     const csrf = document.getElementById('csrf').value;
+    const spRequest = document.getElementById('spRequest');
+    const spReset = document.getElementById('spReset');
+    const emailMaskEl = document.getElementById('emailMask');
 
-    let countdown = 60, timer=null, lockedEmail='';
+    // Match API session rate limit (15s)
+    const RATE_SECONDS = 15;
+
+    let countdown = RATE_SECONDS, timer=null, lockedEmail='';
+
     function startTimer(){
       btnResend.disabled = true;
-      countdown = 60; cdEl.textContent = countdown;
+      countdown = RATE_SECONDS; cdEl.textContent = countdown;
       clearInterval(timer);
       timer = setInterval(()=>{
         countdown--; cdEl.textContent = countdown;
@@ -95,29 +119,52 @@ $csrf = $_SESSION['csrf_token'];
       },1000);
     }
 
+    function maskEmail(email){
+      const [user, domain] = email.split('@');
+      if (!domain) return email;
+      const u = user.length <= 2 ? user[0] + '*' : user[0] + '*'.repeat(Math.max(1, user.length - 2)) + user.slice(-1);
+      const parts = domain.split('.');
+      const d0 = parts[0]; const rest = parts.slice(1).join('.');
+      const dmasked = d0[0] + '*'.repeat(Math.max(1, d0.length - 2)) + d0.slice(-1);
+      return `${u}@${dmasked}${rest ? '.'+rest : ''}`;
+    }
+
+    async function postForm(data){
+      const r = await fetch('../api/api_forgot_password.php', {
+        method:'POST',
+        body: data,
+        headers: { 'X-Requested-With': 'XMLHttpRequest' },
+        credentials:'same-origin'
+      });
+      // Try JSON first, fallback to generic
+      let j = null;
+      try { j = await r.json(); } catch(_) { /* non-JSON */ }
+      return j || { ok:false, message:'Server did not return JSON' };
+    }
+
     formReq.addEventListener('submit', async (e)=>{
       e.preventDefault();
       const email = emailEl.value.trim().toLowerCase();
       if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)){ notify('Enter a valid email.', false); return; }
-      btnReq.disabled = true;
+      btnReq.disabled = true; spRequest.classList.remove('d-none');
       try{
         const fd = new FormData();
         fd.set('action','request');
         fd.set('email', email);
         fd.set('csrf_token', csrf);
-        const r = await fetch('../api/api_forgot_password.php', {method:'POST', body:fd, credentials:'same-origin'});
-        const j = await r.json().catch(()=>({ok:false,message:'Server error'}));
+        const j = await postForm(fd);
         if (j.ok){
           notify('If the email exists, an OTP was sent.', true);
+          lockedEmail = email;
+          emailMaskEl.textContent = maskEmail(email);
           formReq.classList.add('hidden');
           formRes.classList.remove('hidden');
-          lockedEmail = email;
           startTimer();
         } else {
           notify(j.message || 'Unable to send OTP.', false);
         }
       }catch(err){ console.error(err); notify('Network error.', false); }
-      finally{ btnReq.disabled = false; }
+      finally{ btnReq.disabled = false; spRequest.classList.add('d-none'); }
     });
 
     btnResend.addEventListener('click', async ()=>{
@@ -128,10 +175,14 @@ $csrf = $_SESSION['csrf_token'];
         fd.set('action','request');
         fd.set('email', lockedEmail);
         fd.set('csrf_token', csrf);
-        const r = await fetch('../api/api_forgot_password.php', {method:'POST', body:fd, credentials:'same-origin'});
-        await r.json();
-        notify('OTP re-sent if email exists.', true);
-        startTimer();
+        const j = await postForm(fd);
+        if (j.ok){
+          notify('OTP re-sent if email exists.', true);
+          startTimer();
+        } else {
+          notify(j.message || 'Unable to resend OTP.', false);
+          btnResend.disabled = false;
+        }
       }catch(_){ notify('Network error.', false); btnResend.disabled = false; }
     });
 
@@ -144,7 +195,7 @@ $csrf = $_SESSION['csrf_token'];
       if (np.length < 8){ notify('Password must be at least 8 characters.', false); return; }
       if (np !== cp){ notify('Passwords do not match.', false); return; }
 
-      btnRes.disabled = true;
+      btnRes.disabled = true; spReset.classList.remove('d-none');
       try{
         const fd = new FormData();
         fd.set('action','reset');
@@ -152,8 +203,7 @@ $csrf = $_SESSION['csrf_token'];
         fd.set('otp', otp);
         fd.set('new_password', np);
         fd.set('csrf_token', csrf);
-        const r = await fetch('../api/api_forgot_password.php', {method:'POST', body:fd, credentials:'same-origin'});
-        const j = await r.json().catch(()=>({ok:false}));
+        const j = await postForm(fd);
         if (j.ok){
           notify('Password updated. Redirecting to login…', true, 1200);
           setTimeout(()=>{ window.location.href = './login.php'; }, 1200);
@@ -161,7 +211,7 @@ $csrf = $_SESSION['csrf_token'];
           notify(j.message || 'Invalid OTP or expired.', false);
         }
       }catch(err){ console.error(err); notify('Network error.', false); }
-      finally{ btnRes.disabled = false; }
+      finally{ btnRes.disabled = false; spReset.classList.add('d-none'); }
     });
   </script>
 </body>
