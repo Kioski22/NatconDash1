@@ -9,11 +9,33 @@
   <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;600;700&display=swap" rel="stylesheet">
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.1/dist/css/bootstrap.min.css" rel="stylesheet"/>
   <style>
-    :root { --bg-color:#f4f4f4; }
+    :root { --bg-color:#f4f4f4; --btn-color: #111e6c; }
     body { background-color:var(--bg-color); font-family:"Poppins",sans-serif; display:flex; justify-content:center; align-items:center; min-height:100vh; }
     .form-wrapper { max-width:1000px; margin:24px auto; background:#fff; border-radius:1rem; box-shadow:0 2px 10px rgba(0,0,0,.1); overflow:hidden; }
     .form-image { width:100%; height:auto; object-fit:cover; border-top-left-radius:1rem; border-top-right-radius:1rem; }
     .form-flex { display:block; }
+    #btnSubmit{background-color: var(--btn-color);}
+    .logn{
+      margin: 10px 0;
+      text-align: right;
+    }
+    .logn a{
+      font-size: 12px;
+      color: var(--btn-color);
+      text-decoration: none;
+    }
+    h2{
+      margin-bottom: 20px;
+      font-size: 22px;
+      text-align: center;
+    }
+    input{
+      width: 100%;
+      padding: 8px;
+      font-size: 14px;
+      border: 1px solid #aaa;
+      border-radius: 5px;
+    }
     @media (min-width:768px){ .form-flex{ display:flex; } .form-image{ max-width:50%; border-top-right-radius:0; border-bottom-left-radius:1rem; } }
     .form-padding { padding:2rem; flex:1; }
     .form-control { background-color:#f9f9f9; }
@@ -39,26 +61,31 @@
         <img src="../image/natcon.jpg" alt="Natcon" class="img-fluid form-image" />
         <div class="form-padding">
           <div id="msg" class="message mb-2"></div>
-          <h2 class="text-center mb-4">Sign Up</h2>
+          <h2 class="text-center mb-4">SIGN UP</h2>
 
           <form id="signup-form" novalidate>
             <div class="mb-3">
               <label for="name" class="form-label">Name</label>
-              <input type="text" class="form-control" id="name" name="name" required maxlength="150" autocomplete="name" />
+              <input type="text" class="form-control" id="name" name="name" required maxlength="150" autocomplete="name" placeholder="Enter your name"/>
             </div>
 
             <div class="mb-3">
               <label for="email" class="form-label">Email</label>
-              <input type="email" class="form-control" id="email" name="email" required maxlength="190" autocomplete="email" />
+              <input type="email" class="form-control" id="email" name="email" required maxlength="190" autocomplete="email" placeholder="Enter your email"/>
             </div>
 
             <div class="mb-3 position-relative">
               <label for="password" class="form-label">Password</label>
-              <input type="password" class="form-control" id="password" name="password" required minlength="8" autocomplete="new-password" style="padding-right:60px" />
+              <input type="password" class="form-control" id="password" name="password" required minlength="8" autocomplete="new-password" style="padding-right:60px" placeholder="Create a password"/>
               <span class="eye-icon" id="togglePwd">Show</span>
             </div>
 
-            <button id="btnSubmit" type="submit" class="btn btn-success w-100">Sign Up</button>
+            <button id="btnSubmit" type="submit" class="btn w-100 text-white">Sign Up</button>
+
+            <div class="logn">
+               <a href="login.php">Already have an account? Login</a>
+            </div>
+
           </form>
         </div>
       </div>

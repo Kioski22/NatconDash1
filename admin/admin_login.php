@@ -36,7 +36,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $result = $stmt->get_result();
             if ($row = $result->fetch_assoc()) {
                 $role = $row['role'] ?? '';
-                if ($role !== 'admin') {
+                if ($role !== 'super') {
                     $error = 'Unauthorized.';
                 } else {
                     $hash = $row['password'] ?? '';

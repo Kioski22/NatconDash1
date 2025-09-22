@@ -37,6 +37,12 @@ if (!function_exists('e')) {
     function e($s){ return htmlspecialchars((string)$s, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8'); }
 }
 
+// --- Load list of days for the Day selector ---
+$days = [];
+if ($dr = $db->query("SELECT id, label, day_date FROM function_room_days ORDER BY day_date ASC")) {
+    while ($row = $dr->fetch_assoc()) $days[] = $row;
+}
+
 // Handle POST actions: add, update, delete
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $token = $_POST['csrf_token'] ?? '';
@@ -50,13 +56,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $day_number = is_numeric($_POST['day_number'] ?? null) ? (int)$_POST['day_number'] : null;
             $day_date = trim($_POST['day_date'] ?? '') ?: null;
             $description = trim($_POST['description'] ?? '');
+            $day_id = isset($_POST['day_id']) && is_numeric($_POST['day_id']) ? (int)$_POST['day_id'] : null;
 
             if ($name === '') $errors[] = 'Name is required.';
             if ($day_number === null) $errors[] = 'Day number is required.';
             if (empty($errors)) {
-                $stmt = $db->prepare("INSERT INTO function_rooms (name, label, day_number, day_date, description) VALUES (?, ?, ?, ?, ?)");
+                $stmt = $db->prepare("INSERT INTO function_rooms (name, label, day_number, day_date, description, day_id) VALUES (?, ?, ?, ?, ?, ?)");
                 if ($stmt) {
-                    $stmt->bind_param('ssiss', $name, $label, $day_number, $day_date, $description);
+                    // allow NULL for day_id when not chosen
+                    if ($day_id !== null && $day_id <= 0) $day_id = null;
+                    $stmt->bind_param('ssissi', $name, $label, $day_number, $day_date, $description, $day_id);
                     if ($stmt->execute()) {
                         $success = 'Function room added.';
                     } else {
@@ -74,20 +83,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $day_number = is_numeric($_POST['day_number'] ?? null) ? (int)$_POST['day_number'] : null;
             $day_date = trim($_POST['day_date'] ?? '') ?: null;
             $description = trim($_POST['description'] ?? '');
+            $day_id = isset($_POST['day_id']) && is_numeric($_POST['day_id']) ? (int)$_POST['day_id'] : null;
 
             if ($id <= 0) $errors[] = 'Invalid room id.';
             if ($name === '') $errors[] = 'Name is required.';
             if ($day_number === null) $errors[] = 'Day number is required.';
 
             if (empty($errors)) {
-                $stmt = $db->prepare("UPDATE function_rooms SET name = ?, label = ?, day_number = ?, day_date = ?, description = ? WHERE id = ? LIMIT 1");
+                $stmt = $db->prepare("UPDATE function_rooms SET name = ?, label = ?, day_number = ?, day_date = ?, description = ?, day_id = ? WHERE id = ? LIMIT 1");
                 if ($stmt) {
-                    $stmt->bind_param('ssisii', $name, $label, $day_number, $day_date, $description, $id);
-                    // note: bind_param types adjusted below because day_date/description are strings - fix types:
-                    $stmt->close();
-                    // correct prepared statement
-                    $stmt = $db->prepare("UPDATE function_rooms SET name = ?, label = ?, day_number = ?, day_date = ?, description = ? WHERE id = ? LIMIT 1");
-                    $stmt->bind_param('ssissi', $name, $label, $day_number, $day_date, $description, $id);
+                    if ($day_id !== null && $day_id <= 0) $day_id = null;
+                    $stmt->bind_param('ssissii', $name, $label, $day_number, $day_date, $description, $day_id, $id);
                     if ($stmt->execute()) {
                         $success = 'Function room updated.';
                     } else {
@@ -137,7 +143,7 @@ if ($messages) {
 
 // fetch rooms list
 $rooms = [];
-$res = $db->query("SELECT id, name, label, day_number, day_date, description FROM function_rooms ORDER BY day_number ASC, id ASC");
+$res = $db->query("SELECT id, name, label, day_number, day_date, description, day_id FROM function_rooms ORDER BY day_number ASC, id ASC");
 if ($res) {
     while ($r = $res->fetch_assoc()) $rooms[] = $r;
 }
@@ -146,7 +152,7 @@ if ($res) {
 $editRoom = null;
 if (isset($_GET['edit']) && is_numeric($_GET['edit'])) {
     $eid = (int)$_GET['edit'];
-    $stmt = $db->prepare("SELECT id, name, label, day_number, day_date, description FROM function_rooms WHERE id = ? LIMIT 1");
+    $stmt = $db->prepare("SELECT id, name, label, day_number, day_date, description, day_id FROM function_rooms WHERE id = ? LIMIT 1");
     if ($stmt) {
         $stmt->bind_param('i', $eid);
         $stmt->execute();
@@ -196,6 +202,7 @@ if (isset($_GET['edit']) && is_numeric($_GET['edit'])) {
                   <th>Label</th>
                   <th>Day</th>
                   <th>Date</th>
+                  <th>Linked Day</th>
                   <th></th>
                 </tr>
               </thead>
@@ -207,6 +214,7 @@ if (isset($_GET['edit']) && is_numeric($_GET['edit'])) {
                     <td><?= e($r['label']) ?></td>
                     <td><?= e($r['day_number']) ?></td>
                     <td><?= e($r['day_date']) ?></td>
+                    <td><?= $r['day_id'] ? ('#'.(int)$r['day_id']) : '-' ?></td>
                     <td class="text-end">
                       <a href="admin_manage_function_rooms.php?edit=<?= (int)$r['id'] ?>" class="btn btn-sm btn-primary">Edit</a>
                       <form method="post" class="d-inline" onsubmit="return confirm('Delete this room?');">
@@ -243,6 +251,21 @@ if (isset($_GET['edit']) && is_numeric($_GET['edit'])) {
                 <label class="form-label">Label</label>
                 <input name="label" class="form-control" value="<?= e($editRoom['label']) ?>">
               </div>
+
+              <!-- New: Select linked Day (function_room_days) -->
+              <div class="mb-2">
+                <label class="form-label">Linked Day</label>
+                <select name="day_id" class="form-select">
+                  <option value="">-- none --</option>
+                  <?php foreach ($days as $d): ?>
+                    <option value="<?= (int)$d['id'] ?>" <?= ((int)$editRoom['day_id'] === (int)$d['id']) ? 'selected' : '' ?>>
+                      <?= e($d['label']) ?> <?= $d['day_date'] ? ' - ' . e($d['day_date']) : '' ?>
+                    </option>
+                  <?php endforeach; ?>
+                </select>
+                <small class="text-muted">This links the room to a day; used when filtering rooms by day.</small>
+              </div>
+
               <div class="mb-2">
                 <label class="form-label">Day Number</label>
                 <input name="day_number" type="number" min="1" class="form-control" required value="<?= e($editRoom['day_number']) ?>">
@@ -276,6 +299,19 @@ if (isset($_GET['edit']) && is_numeric($_GET['edit'])) {
                 <label class="form-label">Label</label>
                 <input name="label" class="form-control" value="">
               </div>
+
+              <!-- New: Select linked Day (function_room_days) -->
+              <div class="mb-2">
+                <label class="form-label">Linked Day</label>
+                <select name="day_id" class="form-select">
+                  <option value="">-- none --</option>
+                  <?php foreach ($days as $d): ?>
+                    <option value="<?= (int)$d['id'] ?>"><?= e($d['label']) ?> <?= $d['day_date'] ? ' - ' . e($d['day_date']) : '' ?></option>
+                  <?php endforeach; ?>
+                </select>
+                <small class="text-muted">This links the room to a day; used when filtering rooms by day.</small>
+              </div>
+
               <div class="mb-2">
                 <label class="form-label">Day Number</label>
                 <input name="day_number" type="number" min="1" class="form-control" required value="">

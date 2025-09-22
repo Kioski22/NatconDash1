@@ -1,10 +1,9 @@
 <?php
 session_start();
-require_once __DIR__ . '/../db.php'; // adjust path if needed
+require_once __DIR__ . '/../db.php';
 
-// Current user (set these from your login system)
-$userId   = isset($_SESSION['user_id']) ? (int)$_SESSION['user_id'] : null;
-$userRole = isset($_SESSION['user_role']) ? $_SESSION['user_role'] : 'guest';
+// Current user (optional)
+$userId = isset($_SESSION['user_id']) ? (int)$_SESSION['user_id'] : null;
 
 // Server timezone
 date_default_timezone_set('Asia/Manila');
@@ -40,68 +39,13 @@ function isConventionOver($today, $lastDate) {
     return (new DateTime($today)) > (new DateTime($lastDate));
 }
 
-function userHasCompletedAny($conn, $userId) {
-    if (!$userId) return false;
-    $sql = "SELECT COUNT(*) AS cnt FROM attendance_records WHERE user_id = ? AND completed = 1";
-    if ($stmt = $conn->prepare($sql)) {
-        $stmt->bind_param('i', $userId);
-        $stmt->execute();
-        $res = $stmt->get_result()->fetch_assoc();
-        $stmt->close();
-        return (int)$res['cnt'] > 0;
-    }
-    return false;
-}
-
-// NEW: fetch user eligibility flags from users table (with fallback to common typo)
-function fetchUserEligibility($conn, $userId) {
-    $defaults = [
-        'attendance' => 0,
-        'appearance' => 0,
-        'cpd'        => 0,
-    ];
-    if (!$userId) return $defaults;
-
-    $sql = "SELECT * FROM users WHERE id = ? LIMIT 1";
-    if ($stmt = $conn->prepare($sql)) {
-        $stmt->bind_param('i', $userId);
-        $stmt->execute();
-        $row = $stmt->get_result()->fetch_assoc();
-        $stmt->close();
-
-        if (!$row) return $defaults;
-
-        // Support both correct and possible typo column name
-        $att = isset($row['eligible_certificate_attendance'])
-            ? (int)$row['eligible_certificate_attendance']
-            : (isset($row['eligible_certifcate_attendance']) ? (int)$row['eligible_certifcate_attendance'] : 0);
-
-        return [
-            'attendance' => $att,
-            'appearance' => isset($row['eligible_certificate_appearance']) ? (int)$row['eligible_certificate_appearance'] : 0,
-            'cpd'        => isset($row['eligible_cpd_certificate']) ? (int)$row['eligible_cpd_certificate'] : 0,
-        ];
-    }
-
-    return $defaults;
-}
-
 $conventionOver = isConventionOver($today, $lastConventionDate);
-$userCompletedAny = userHasCompletedAny($conn, $userId);
 
-// NEW: Load eligibility once on page load
-$userEligibility = fetchUserEligibility($conn, $userId);
-$eligMap = [
-    'attendance' => ($userId && $userEligibility['attendance'] === 1),
-    'appearance' => ($userId && $userEligibility['appearance'] === 1),
-    'cpd'        => ($userId && $userEligibility['cpd'] === 1),
-];
-
-// Current styling constants
+// Theme
 $THEME = [
     'primary' => '#0B2A59',
-    'accent' => '#1a4189',
-    'text' => '#FFFFFF',
+    'accent'  => '#1a4189',
+    'text'    => '#FFFFFF',
     'text-muted' => '#D6E0FF'
 ];
 ?>
@@ -112,26 +56,86 @@ $THEME = [
     <title>73rd PEME National Convention</title>
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+    <!-- Google Fonts -->
+  <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+
     <style>
-        body {
-            background: <?= $THEME['primary'] ?>;
-            color: <?= $THEME['text'] ?>;
-            font-family: system-ui, -apple-system, "Segoe UI", Roboto;
-        }
-        .nav-header {
-            background: <?= $THEME['accent'] ?>;
-            padding: 15px 20px;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-        }
-        .nav-header img.logo {
-            height: 40px;
-        }
-        .nav-header .back-link {
-            color: <?= $THEME['text'] ?>;
-            text-decoration: none;
-        }
+        :root {
+      --primary-color: #111e6c;
+      --primary-dark: #1116ec;
+      --primary-light: #dbeafe;
+      --secondary-color: #e27900ff;
+      --secondary-dark: #ce6e00ff;
+      --success-color: #10b981;
+      --dark-color: #111e6c;
+      --light-gray: #f8fafc;
+      --border-color: #e5e7eb;
+    }
+    
+    * {
+      font-family: 'Poppins', sans-serif;
+    }
+    
+    .navbar {
+      backdrop-filter: blur(20px);
+      background: rgba(255, 255, 255, 0.95) !important;
+      border-bottom: 1px solid var(--border-color);
+    }
+    
+    .navbar-brand span {
+      background: linear-gradient(135deg, var(--primary-color), var(--secondary-color));
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+    
+    .btn-primary {
+      background: linear-gradient(135deg, var(--primary-color), var(--primary-dark));
+      border: none;
+      box-shadow: 0 4px 15px rgba(37, 99, 235, 0.3);
+    }
+    
+    .btn-primary:hover {
+      background: linear-gradient(135deg, var(--primary-dark), var(--primary-color));
+      transform: translateY(-2px);
+      box-shadow: 0 8px 25px rgba(37, 99, 235, 0.4);
+    }
+    
+    .btn-outline-primary {
+      border: 2px solid var(--primary-color);
+      color: var(--primary-color);
+    }
+    
+    .btn-outline-primary:hover {
+      background: var(--primary-color);
+      transform: translateY(-2px);
+      box-shadow: 0 8px 25px rgba(37, 99, 235, 0.3);
+    }
+    
+    .btn-warning {
+      background: linear-gradient(135deg, var(--secondary-color), var(--secondary-dark));
+      border: none;
+      box-shadow: 0 4px 15px rgba(245, 158, 11, 0.3);
+    }
+    
+    .btn-warning:hover {
+      background: linear-gradient(135deg, var(--secondary-dark), var(--secondary-color));
+      transform: translateY(-2px);
+      box-shadow: 0 8px 25px rgba(245, 158, 11, 0.4);
+    }
+        
+    body { background: var(--primary-color); color:#fff;}
+
+    .text-gradient {
+      background: linear-gradient(135deg, var(--primary-color), var(--secondary-color));
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+
+    #main {
+        margin-top: 50px;
+    }
         .page-title {
             background: white;
             color: black;
@@ -161,71 +165,60 @@ $THEME = [
             color: <?= $THEME['text-muted'] ?>;
             font-size: 0.9rem;
         }
-        .certificate-section {
-            margin-top: 40px;
-            text-align: center;
-        }
-        .certificate-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-            gap: 20px;
-            margin-top: 20px;
-        }
-        .certificate-item {
-            background: rgba(255,255,255,0.1);
-            padding: 20px;
-            border-radius: 10px;
-            text-align: center;
-        }
-        .certificate-item.disabled {
-            opacity: 0.5;
-            cursor: not-allowed;
-        }
-        .certificate-icon {
-            width: 80px;
-            height: 80px;
-            margin: 0 auto 15px;
-            background: white;
-            border-radius: 10px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-        }
     </style>
 </head>
 <body>
-    <!-- Navigation Header -->
-    <div class="nav-header">
-        <img src="../assets/logo.png" alt="PEME Logo" class="logo">
-        <a href="dashboard.php" class="back-link">← Back to Home</a>
-    </div>
+    <!-- Header Section -->
+  <nav class="navbar navbar-expand-lg navbar-light shadow-custom fixed-top">
+    <div class="container">
+      <!-- Logo + Title -->
+      <a class="navbar-brand d-flex align-items-center" href="dashboard.php">
+        <img src="../image/natcon.jpg" alt="PSME Logo" class="me-3 rounded-circle" style="height: 55px;">
+        <div>
+          <span class="fs-5 fw-bold d-block">73rd PSME</span>
+          <small class="d-none d-md-block fw-medium">National Convention</small>
+        </div>
+      </a>
 
+      <!-- Navbar Toggle -->
+      <button class="navbar-toggler border-0 shadow-sm" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
+        <span class="navbar-toggler-icon"></span>
+      </button>
+
+      <!-- Navbar Links -->
+      <div class="collapse navbar-collapse" id="navbarNav">
+        <ul class="navbar-nav ms-auto align-items-center">
+          <li class="nav-item">
+            <a class="nav-link fw-semibold px-3" href="dashboard.php">< Back to Home</a>
+          </li>
+        </ul>
+      </div>
+    </div>
+  </nav>
+
+  <div class="main" id="main">
     <!-- Page Title -->
-    <div class="page-title">
-        FUNCTION ROOMS
-    </div>
+    <div class="page-title mt-5">FUNCTION ROOMS</div>
 
-    <!-- Acknowledgement of day.php changes -->
+    <!-- Info -->
     <div class="container mb-3">
         <div class="alert alert-info small">
             <strong>Note:</strong> The Day page (dashboard/day.php) was updated.
-            Changes include:
             <ul class="mb-0">
-                <li>day.php now resolves the requested day from <code>?day</code>, <code>?day_id</code> or by matching today's date in the DB.</li>
-                <li>function rooms and speakers are fetched dynamically from the <code>function_rooms</code> and <code>speakers</code> tables.</li>
-                <li>Time formatting helper (fmt_time) and safe HTML escaping are used.</li>
-                <li>Links on this page point to <code>day.php?day_id=&lt;id&gt;</code> so the new resolver logic is used.</li>
+                <li>day.php resolves the requested day from ?day, ?day_id or by matching today's date in the DB.</li>
+                <li>Function rooms and speakers are fetched dynamically.</li>
+                <li>Links here point to day.php?day_id=&lt;id&gt;.</li>
             </ul>
         </div>
     </div>
-    
+
     <div class="container">
+        <!-- Function Room Cards only -->
         <div class="row">
-            <!-- Function Room Cards -->
             <div class="col-md-8">
                 <p class="text-muted mb-4">
-                    Explore the seminars for Day 1 to Day 3.<br>
-                    Each day features different speakers and technical topics. Please complete the attendance, quiz, and evaluation for each session to ensure your participation is recorded.
+                    Explore the seminars for Day 1 to Day 3.
+                    Each day features different speakers and technical topics.
                 </p>
 
                 <?php foreach ($days as $d):
@@ -251,56 +244,8 @@ $THEME = [
                     <div class="function-room-date">Required for certificate generation</div>
                 </div>
             </div>
-
-            <!-- Certificates Section -->
-            <div class="col-md-4">
-                <div class="certificate-section">
-                    <h4 class="mb-4">GENERATE YOUR CERTIFICATES</h4>
-                    
-                    <?php
-                    $certificates = [
-                        ['key' => 'attendance', 'label' => 'Certificate of Attendance', 'icon' => 'CA'],
-                        ['key' => 'appearance', 'label' => 'Certificate of Appearance', 'icon' => 'CP'],
-                        ['key' => 'cpd', 'label' => 'CPD Form Certificate', 'icon' => 'CPD']
-                    ];
-                    ?>
-
-                    <div class="certificate-grid">
-                        <?php foreach ($certificates as $cert): 
-                            $isEligible = !empty($eligMap[$cert['key']]);
-                        ?>
-                        <div class="certificate-item <?= $isEligible ? '' : 'disabled' ?>"
-                             data-type="<?= htmlspecialchars($cert['key']) ?>"
-                             data-enabled="<?= $isEligible ? '1' : '0' ?>"
-                             <?= $isEligible ? "onclick=\"generateCertificate('{$cert['key']}')\"" : "title='Not eligible yet'" ?>>
-                            <div class="certificate-icon">
-                                <?= $cert['icon'] ?>
-                            </div>
-                            <div class="certificate-label">
-                                <?= htmlspecialchars($cert['label']) ?>
-                            </div>
-                        </div>
-                        <?php endforeach; ?>
-                    </div>
-
-                    <?php if (!$userId): ?>
-                        <div class="text-warning small mt-2">Please log in to generate certificates.</div>
-                    <?php endif; ?>
-                </div>
-            </div>
         </div>
     </div>
-
-    <script>
-    // client-side guard (in case someone clicks disabled)
-    const ELIG = <?= json_encode($eligMap, JSON_UNESCAPED_SLASHES) ?>;
-    function generateCertificate(type) {
-        if (!ELIG[type]) {
-            alert('You are not yet eligible for this certificate.');
-            return;
-        }
-        window.location.href = 'generate_certificate.php?type=' + encodeURIComponent(type);
-    }
-    </script>
+    </div>
 </body>
 </html>

@@ -32,6 +32,18 @@ if (empty($_SESSION['csrf_token'])) {
 if (!function_exists('e')) {
     function e($s){ return htmlspecialchars((string)$s, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8'); }
 }
+// Add: asset URL normalizer
+if (!function_exists('asset_url')) {
+    function asset_url($path) {
+        $path = (string)$path;
+        if ($path === '') return '';
+        if (preg_match('#^https?://#i', $path)) return $path; // already absolute URL
+        // project base (e.g. /NatconDash1)
+        $base = rtrim(dirname(dirname($_SERVER['SCRIPT_NAME'])), '/\\');
+        if ($base === '' || $base === '.' ) $base = '';
+        return $base . '/' . ltrim($path, '/');
+    }
+}
 
 $errors = [];
 $success = '';
@@ -85,13 +97,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $title = trim($_POST['title'] ?? '');
             $room_id = isset($_POST['room_id']) && is_numeric($_POST['room_id']) ? (int)$_POST['room_id'] : 0;
             $start_time = trim($_POST['start_time'] ?? '') ?: null;
+            $end_time = trim($_POST['end_time'] ?? '') ?: null;              // NEW
             $bio = trim($_POST['bio'] ?? '');
             $photo_url = trim($_POST['photo_url'] ?? null);
 
             if ($name === '') $errors[] = 'Speaker name is required.';
             if ($room_id <= 0) $errors[] = 'Please choose a function room.';
             if ($start_time !== null && $start_time !== '' && !preg_match('/^\d{2}:\d{2}(:\d{2})?$/', $start_time)) {
-                $errors[] = 'Invalid time format. Use HH:MM or HH:MM:SS.';
+                $errors[] = 'Invalid start time format. Use HH:MM or HH:MM:SS.';
+            }
+            if ($end_time !== null && $end_time !== '' && !preg_match('/^\d{2}:\d{2}(:\d{2})?$/', $end_time)) {  // NEW
+                $errors[] = 'Invalid end time format. Use HH:MM or HH:MM:SS.';
             }
 
             // handle upload
@@ -103,9 +119,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
 
             if (empty($errors)) {
-                $stmt = $db->prepare("INSERT INTO speakers (room_id, name, title, start_time, photo_url, bio) VALUES (?, ?, ?, ?, ?, ?)");
+                $stmt = $db->prepare("INSERT INTO speakers (room_id, name, title, start_time, end_time, photo_url, bio) VALUES (?, ?, ?, ?, ?, ?, ?)"); // CHANGED
                 if ($stmt) {
-                    $stmt->bind_param('isssss', $room_id, $name, $title, $start_time, $photo_url, $bio);
+                    $stmt->bind_param('issssss', $room_id, $name, $title, $start_time, $end_time, $photo_url, $bio); // CHANGED
                     if ($stmt->execute()) {
                         $success = 'Speaker added.';
                     } else {
@@ -123,6 +139,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $title = trim($_POST['title'] ?? '');
             $room_id = isset($_POST['room_id']) && is_numeric($_POST['room_id']) ? (int)$_POST['room_id'] : 0;
             $start_time = trim($_POST['start_time'] ?? '') ?: null;
+            $end_time = trim($_POST['end_time'] ?? '') ?: null;              // NEW
             $bio = trim($_POST['bio'] ?? '');
             $photo_url = trim($_POST['photo_url'] ?? null);
 
@@ -130,7 +147,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             if ($name === '') $errors[] = 'Speaker name is required.';
             if ($room_id <= 0) $errors[] = 'Please choose a function room.';
             if ($start_time !== null && $start_time !== '' && !preg_match('/^\d{2}:\d{2}(:\d{2})?$/', $start_time)) {
-                $errors[] = 'Invalid time format. Use HH:MM or HH:MM:SS.';
+                $errors[] = 'Invalid start time format. Use HH:MM or HH:MM:SS.';
+            }
+            if ($end_time !== null && $end_time !== '' && !preg_match('/^\d{2}:\d{2}(:\d{2})?$/', $end_time)) {  // NEW
+                $errors[] = 'Invalid end time format. Use HH:MM or HH:MM:SS.';
             }
 
             // handle upload (if provided, replace existing)
@@ -142,9 +162,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
 
             if (empty($errors)) {
-                $stmt = $db->prepare("UPDATE speakers SET room_id = ?, name = ?, title = ?, start_time = ?, photo_url = ?, bio = ? WHERE id = ? LIMIT 1");
+                $stmt = $db->prepare("UPDATE speakers SET room_id = ?, name = ?, title = ?, start_time = ?, end_time = ?, photo_url = ?, bio = ? WHERE id = ? LIMIT 1"); // CHANGED
                 if ($stmt) {
-                    $stmt->bind_param('isssssi', $room_id, $name, $title, $start_time, $photo_url, $bio, $id);
+                    $stmt->bind_param('issssssi', $room_id, $name, $title, $start_time, $end_time, $photo_url, $bio, $id); // CHANGED
                     if ($stmt->execute()) {
                         $success = 'Speaker updated.';
                     } else {
@@ -202,21 +222,34 @@ if ($r) {
 
 // fetch all rooms (we'll use JS to filter by day if needed)
 $rooms = [];
-$r2 = $db->query("SELECT id, name, label, day_number, day_id, day_date FROM function_rooms ORDER BY day_number ASC, id ASC");
+$r2 = $db->query("
+  SELECT fr.id, fr.name,
+         fd.id AS day_id, fd.label AS day_label, fd.day_date
+  FROM function_rooms fr
+  LEFT JOIN function_room_days fd ON fd.id = fr.day_id
+  ORDER BY fd.day_date ASC, fr.id ASC
+");
 if ($r2) {
-    while ($row = $r2->fetch_assoc()) $rooms[] = $row;
+    while ($row = $r2->fetch_assoc()) {
+        // derive day_number if label like "Day 1"
+        $row['day_number'] = null;
+        if (!empty($row['day_label']) && preg_match('/(\d+)/', $row['day_label'], $m)) {
+            $row['day_number'] = (int)$m[1];
+        }
+        $rooms[] = $row;
+    }
 }
 
 // fetch speakers list with room + day info
 $speakers = [];
 $sql = "
-    SELECT s.id, s.name, s.title, s.start_time, s.photo_url, s.room_id,
-           fr.name AS room_name, fr.day_number, fr.day_id, fr.day_date,
-           fd.label AS day_label, fd.day_date AS fd_day_date
+    SELECT s.id, s.name, s.title, s.start_time, s.end_time, s.photo_url, s.room_id,    -- CHANGED
+           fr.name AS room_name,
+           fd.id AS day_id, fd.label AS day_label, fd.day_date
     FROM speakers s
     LEFT JOIN function_rooms fr ON fr.id = s.room_id
     LEFT JOIN function_room_days fd ON fd.id = fr.day_id
-    ORDER BY fr.day_number ASC, fr.id ASC, s.start_time ASC
+    ORDER BY fd.day_date ASC, fr.id ASC, s.start_time ASC
 ";
 $res = $db->query($sql);
 if ($res) {
@@ -227,7 +260,7 @@ if ($res) {
 $edit = null;
 if (isset($_GET['edit']) && is_numeric($_GET['edit'])) {
     $eid = (int)$_GET['edit'];
-    $stmt = $db->prepare("SELECT id, name, title, start_time, photo_url, bio, room_id FROM speakers WHERE id = ? LIMIT 1");
+    $stmt = $db->prepare("SELECT id, name, title, start_time, end_time, photo_url, bio, room_id FROM speakers WHERE id = ? LIMIT 1"); // CHANGED
     if ($stmt) {
         $stmt->bind_param('i', $eid);
         $stmt->execute();
@@ -280,16 +313,23 @@ if (isset($_GET['edit']) && is_numeric($_GET['edit'])) {
                         <td><?= (int)$s['id'] ?></td>
                         <td>
                           <?php if (!empty($s['photo_url'])): ?>
-                            <img src="<?= e($s['photo_url']) ?>" class="speaker-photo" alt="">
+                            <img src="<?= e(asset_url($s['photo_url'])) ?>" class="speaker-photo" alt="">
                           <?php else: ?>
                             <div class="speaker-photo" style="background:#e9ecef"></div>
                           <?php endif; ?>
                         </td>
                         <td><?= e($s['name']) ?></td>
                         <td><?= e($s['title']) ?></td>
-                        <td><?= e($s['day_label'] ?: ('Day ' . ((int)$s['day_number'] ?: '?'))) ?></td>
+                        <td><?= e($s['day_label'] ?: '-') ?></td>
                         <td><?= e($s['room_name'] ?: '-') ?></td>
-                        <td><?= e($s['start_time']) ?></td>
+                        <td>
+                          <?php
+                            $t1 = $s['start_time'] ?? '';
+                            $t2 = $s['end_time'] ?? '';
+                            $timeText = $t1 . ($t2 ? ' - ' . $t2 : '');
+                            echo e($timeText ?: '-');
+                          ?>
+                        </td>
                         <td class="text-end">
                           <a href="admin_speaker_manage.php?edit=<?= (int)$s['id'] ?>" class="btn btn-sm btn-primary">Edit</a>
                           <form method="post" class="d-inline" onsubmit="return confirm('Delete speaker?');">
@@ -344,17 +384,22 @@ if (isset($_GET['edit']) && is_numeric($_GET['edit'])) {
                       <option value="<?= (int)$rm['id'] ?>" <?= $edit['room_id'] == $rm['id'] ? 'selected' : '' ?>><?= e($rm['name']) ?> <?= $rm['day_number'] ? ' (Day '.$rm['day_number'].')' : '' ?></option>
                     <?php endforeach; ?>
                   </select>
+                  <small id="noRoomsEdit" class="text-danger d-none">No rooms found for selected day.</small>
                 </div>
 
                 <div class="mb-2">
                   <label class="form-label">Start Time</label>
                   <input name="start_time" type="time" class="form-control" value="<?= e($edit['start_time']) ?>">
                 </div>
+                <div class="mb-2"> <!-- NEW -->
+                  <label class="form-label">End Time</label>
+                  <input name="end_time" type="time" class="form-control" value="<?= e($edit['end_time'] ?? '') ?>">
+                </div>
 
                 <div class="mb-2">
                   <label class="form-label">Photo (upload to replace)</label>
                   <?php if (!empty($edit['photo_url'])): ?>
-                    <div class="mb-2"><img src="<?= e($edit['photo_url']) ?>" class="speaker-photo" alt=""></div>
+                    <div class="mb-2"><img src="<?= e(asset_url($edit['photo_url'])) ?>" class="speaker-photo" alt=""></div>
                   <?php endif; ?>
                   <input name="photo_file" type="file" accept="image/*" class="form-control">
                   <input type="hidden" name="photo_url" value="<?= e($edit['photo_url']) ?>">
@@ -403,11 +448,16 @@ if (isset($_GET['edit']) && is_numeric($_GET['edit'])) {
                       <option value="<?= (int)$rm['id'] ?>"><?= e($rm['name']) ?> <?= $rm['day_number'] ? ' (Day '.$rm['day_number'].')' : '' ?></option>
                     <?php endforeach; ?>
                   </select>
+                  <small id="noRoomsAdd" class="text-danger d-none">No rooms found for selected day.</small>
                 </div>
 
                 <div class="mb-2">
                   <label class="form-label">Start Time</label>
                   <input name="start_time" type="time" class="form-control" value="">
+                </div>
+                <div class="mb-2"> <!-- NEW -->
+                  <label class="form-label">End Time</label>
+                  <input name="end_time" type="time" class="form-control" value="">
                 </div>
 
                 <div class="mb-2">
@@ -439,33 +489,61 @@ if (isset($_GET['edit']) && is_numeric($_GET['edit'])) {
 
 <script>
 const rooms = <?= json_encode($rooms, JSON_HEX_TAG|JSON_HEX_AMP|JSON_HEX_APOS|JSON_HEX_QUOT) ?>;
-function filterRoomsFor(selectEl, dayId) {
+
+function filterRoomsFor(selectEl, dayId, selectedRoomId = null, noRoomsEl = null) {
+  // Reset options
   selectEl.innerHTML = '<option value="">-- select room --</option>';
-  rooms.forEach(r=>{
-    if (!dayId || r.day_id == dayId || r.day_number == dayId) {
+  let count = 0;
+
+  rooms.forEach(r => {
+    if (!dayId || String(r.day_id) === String(dayId)) {
       const opt = document.createElement('option');
+      const suffix = r.day_label ? (' (' + r.day_label + ')') : (r.day_number ? ' (Day ' + r.day_number + ')' : '');
       opt.value = r.id;
-      opt.textContent = r.name + (r.day_number ? ' (Day ' + r.day_number + ')' : '');
+      opt.textContent = r.name + suffix;
+      if (selectedRoomId && String(selectedRoomId) === String(r.id)) opt.selected = true;
       selectEl.appendChild(opt);
+      count++;
     }
   });
+
+  if (noRoomsEl) noRoomsEl.classList.toggle('d-none', count > 0);
 }
 
-document.addEventListener('DOMContentLoaded', ()=>{
+document.addEventListener('DOMContentLoaded', () => {
+  // ADD form wiring
   const daySelect = document.getElementById('daySelect');
   const roomSelect = document.getElementById('roomSelect');
+  const noRoomsAdd = document.getElementById('noRoomsAdd');
   if (daySelect && roomSelect) {
-    daySelect.addEventListener('change', ()=> filterRoomsFor(roomSelect, daySelect.value));
+    daySelect.addEventListener('change', () => {
+      filterRoomsFor(roomSelect, daySelect.value, null, noRoomsAdd);
+    });
   }
+
+  // EDIT form wiring
   const daySelectEdit = document.getElementById('daySelectEdit');
   const roomSelectEdit = document.getElementById('roomSelectEdit');
+  const noRoomsEdit = document.getElementById('noRoomsEdit');
+
   if (daySelectEdit && roomSelectEdit) {
-    let selectedRoomId = roomSelectEdit.value;
-    let roomObj = rooms.find(r=>r.id == selectedRoomId);
+    // Determine the currently selected room (from PHP-rendered selected option)
+    const selectedRoomId = roomSelectEdit.value || null;
+    const roomObj = rooms.find(r => String(r.id) === String(selectedRoomId));
+
+    // Preselect day based on the room's day_id, then filter rooms and keep selection
     if (roomObj && roomObj.day_id) {
-      daySelectEdit.value = roomObj.day_id;
+      daySelectEdit.value = String(roomObj.day_id);
+      filterRoomsFor(roomSelectEdit, daySelectEdit.value, selectedRoomId, noRoomsEdit);
+    } else {
+      // No current room or day mapping; leave as-is but wire change
+      filterRoomsFor(roomSelectEdit, daySelectEdit.value || '', selectedRoomId, noRoomsEdit);
     }
-    daySelectEdit.addEventListener('change', ()=> filterRoomsFor(roomSelectEdit, daySelectEdit.value));
+
+    // When day changes, refilter and clear selection if not available
+    daySelectEdit.addEventListener('change', () => {
+      filterRoomsFor(roomSelectEdit, daySelectEdit.value, null, noRoomsEdit);
+    });
   }
 });
 </script>

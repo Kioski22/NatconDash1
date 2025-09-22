@@ -18,26 +18,26 @@ $userName = $_SESSION['user_name'] ?? 'Account';
   <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
   
   <!-- Google Fonts -->
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 
   <!-- Custom CSS -->
   <link rel="stylesheet" href="css/styles.css">
   
   <style>
     :root {
-      --primary-color: #2563eb;
-      --primary-dark: #1d4ed8;
+      --primary-color: #000e6c;
+      --primary-dark: #0006ec;
       --primary-light: #dbeafe;
-      --secondary-color: #f59e0b;
-      --secondary-dark: #d97706;
+      --secondary-color: #e27900ff;
+      --secondary-dark: #ce6e00ff;
       --success-color: #10b981;
-      --dark-color: #1f2937;
+      --dark-color: #111e6c;
       --light-gray: #f8fafc;
       --border-color: #e5e7eb;
     }
     
     * {
-      font-family: 'Inter', sans-serif;
+      font-family: 'Poppins', sans-serif;
     }
     
     .navbar {
@@ -164,6 +164,7 @@ $userName = $_SESSION['user_name'] ?? 'Account';
     /* Prevent horizontal scrollbar in footer */
     body {
       overflow-x: hidden;
+      background: var(--primary-color);
     }
 
     footer {
@@ -432,10 +433,10 @@ $userName = $_SESSION['user_name'] ?? 'Account';
     <div class="container">
       <!-- Logo + Title -->
       <a class="navbar-brand d-flex align-items-center" href="dashboard.php">
-        <img src="../image/natcon.jpg" alt="PSME Logo" class="me-3 rounded-custom" style="height: 50px;">
+        <img src="../image/natcon.jpg" alt="PSME Logo" class="me-3 rounded-circle" style="height: 55px;">
         <div>
           <span class="fs-5 fw-bold d-block">73rd PSME</span>
-          <small class="text-muted d-none d-md-block fw-medium">National Convention</small>
+          <small class="d-none d-md-block fw-medium">National Convention</small>
         </div>
       </a>
 
@@ -454,7 +455,7 @@ $userName = $_SESSION['user_name'] ?? 'Account';
             <a class="nav-link active fw-semibold px-3" href="about.php">About</a>
           </li>
           <li class="nav-item">
-            <a class="nav-link fw-semibold px-3" href="#">Contact</a>
+            <a class="nav-link fw-semibold px-3" href="#footer">Contact</a>
           </li>
 
           <li class="nav-item ms-3">
@@ -510,13 +511,8 @@ $userName = $_SESSION['user_name'] ?? 'Account';
       <div class="container">
         <div class="row align-items-center">
           <div class="col-12 text-center">
-            <div class="mb-4">
-              <span class="badge badge-custom fs-6 px-4 py-2 rounded-pill mb-3">
-                <i class="fas fa-users me-2"></i>About PSME 2025
-              </span>
-            </div>
             <h1 class="display-4 fw-bold mb-4 text-gradient">About Our Organization</h1>
-            <p class="lead text-muted mb-5 mx-auto" style="max-width: 700px;">
+            <p class="lead mb-0 mx-auto text-black" style="max-width: 800px;">
               Discover the organizational structure and leadership behind the 73rd PSME National Convention. 
               Our comprehensive charts showcase the dedicated professionals advancing mechanical engineering excellence in the Philippines.
             </p>
@@ -532,6 +528,9 @@ $userName = $_SESSION['user_name'] ?? 'Account';
           <div class="col-12 text-center mb-5">
             <h2 class="display-6 fw-bold text-gradient section-title">MEET OUR TEAM</h2>
           </div>
+          <div class="col-12 text-center mb-2">
+            <h2 class="display-8 fw-bold text-black">2025 PSME NatCon Committee</h2>
+          </div>
         </div>
         <div class="row justify-content-center">
           <div class="col-lg-10 col-xl-8">
@@ -539,9 +538,6 @@ $userName = $_SESSION['user_name'] ?? 'Account';
               <img src="../image/org-charts/NatCon.jpg" alt="PSME Team Organizational Chart" class="org-chart-image" onerror="this.src='../image/natcon banner.png'">
               <div class="org-chart-overlay">
                 <i class="fas fa-search-plus org-chart-zoom-icon"></i>
-              </div>
-              <div class="org-chart-title">
-                <h5 class="mb-0 fw-bold">PSME Team Organizational Structure</h5>
               </div>
             </div>
           </div>
@@ -553,8 +549,8 @@ $userName = $_SESSION['user_name'] ?? 'Account';
     <section id="board" class="board-section py-5">
       <div class="container">
         <div class="row">
-          <div class="col-12 text-center mb-5">
-            <h2 class="display-6 fw-bold text-gradient section-title">2025 National Board of Trustees</h2>
+          <div class="col-12 text-center mb-2">
+            <h2 class="display-8 fw-bold text-black">2025 National Board of Trustees</h2>
           </div>
         </div>
         <div class="row justify-content-center">
@@ -563,9 +559,6 @@ $userName = $_SESSION['user_name'] ?? 'Account';
               <img src="../image/org-charts/NBOT.jpg" alt="2025 National Board of Trustees" class="org-chart-image" onerror="this.src='../image/natcon banner.png'">
               <div class="org-chart-overlay">
                 <i class="fas fa-search-plus org-chart-zoom-icon"></i>
-              </div>
-              <div class="org-chart-title">
-                <h5 class="mb-0 fw-bold">2025 National Board of Trustees</h5>
               </div>
             </div>
           </div>
@@ -577,8 +570,8 @@ $userName = $_SESSION['user_name'] ?? 'Account';
     <section id="secretariat" class="secretariat-section py-5">
       <div class="container">
         <div class="row">
-          <div class="col-12 text-center mb-5">
-            <h2 class="display-6 fw-bold text-gradient section-title">2025 PSME National Secretariat</h2>
+          <div class="col-12 text-center mb-2">
+            <h2 class="display-8 fw-bold text-black">2025 PSME National Secretariat</h2>
           </div>
         </div>
         <div class="row justify-content-center">
@@ -587,9 +580,6 @@ $userName = $_SESSION['user_name'] ?? 'Account';
               <img src="../image/org-charts/Sec.png" alt="2025 PSME National Secretariat" class="org-chart-image" onerror="this.src='../image/natcon banner.png'">
               <div class="org-chart-overlay">
                 <i class="fas fa-search-plus org-chart-zoom-icon"></i>
-              </div>
-              <div class="org-chart-title">
-                <h5 class="mb-0 fw-bold">2025 PSME National Secretariat</h5>
               </div>
             </div>
           </div>
@@ -607,104 +597,99 @@ $userName = $_SESSION['user_name'] ?? 'Account';
   </div>
 
   <!-- Footer Section -->
-  <footer class="bg-dark text-white position-relative overflow-hidden">
-    <div class="position-absolute top-0 start-0 w-100 h-100" style="background: linear-gradient(135deg, var(--dark-color), #111827); opacity: 0.9;"></div>
-    <!-- Main Footer Content -->
-    <div class="container py-5 position-relative">
-      <div class="row g-4">
-        <div class="col-lg-6">
-          <div class="d-flex align-items-center mb-4">
-            <img src="../image/psme_logo.png" alt="PSME Logo" class="me-3 rounded-custom shadow-sm" style="height: 60px;">
-            <div>
-              <h5 class="fw-bold mb-1 text-white">Philippine Society of Mechanical Engineers</h5>
-              <p class="text-light mb-0 fw-medium">Excellence in Engineering Innovation</p>
-            </div>
-          </div>
-          <div class="text-light">
-            <p class="mb-3 d-flex align-items-start">
-              <i class="fas fa-map-marker-alt me-3 mt-1 text-primary flex-shrink-0"></i>
-              <span>19 Scout Bayoran St., Brgy. South Triangle<br>Quezon City, Philippines</span>
-            </p>
-            <p class="mb-3 d-flex align-items-start">
-              <i class="fas fa-phone me-3 mt-1 text-primary flex-shrink-0"></i>
-              <span>(02) 7752-2527 | (02) 8285-6585</span>
-            </p>
-            <p class="mb-0 d-flex align-items-start">
-              <i class="fas fa-envelope me-3 mt-1 text-primary flex-shrink-0"></i>
-              <span class="small">membership@psmeinc.org.ph<br class="d-sm-none"> | <br class="d-sm-none">icto@psmeinc.org.ph</span>
-            </p>
+<footer class="bg-white text-black position-relative overflow-hidden" id="footer">
+  <div class="position-absolute top-0 start-0 w-100 h-100 bg-white"></div>
+  <!-- Main Footer Content -->
+  <div class="container py-5 position-relative">
+    <div class="row g-4">
+      <div class="col-lg-6">
+        <div class="d-flex align-items-center mb-4">
+          <img src="../image/psme_logo.png" alt="PSME Logo" class="me-3 rounded-custom shadow-sm" style="height: 60px;">
+          <div>
+            <h5 class="fw-bold mb-1 text-black">Philippine Society of Mechanical Engineers</h5>
+            <p class="text-black mb-0 fw-medium">Excellence in Engineering Innovation</p>
           </div>
         </div>
-        <div class="col-lg-6">
-          <div class="row">
-            <div class="col-md-6">
-              <h6 class="fw-bold mb-3 text-white">Quick Links</h6>
-              <ul class="list-unstyled">
-                <li class="mb-2">
-                  <a href="dashboard.php" class="text-light text-decoration-none d-flex align-items-center hover-link">
-                    <i class="fas fa-chevron-right me-2 small text-primary"></i>Home
-                  </a>
-                </li>
-                <li class="mb-2">
-                  <a href="about.php" class="text-light text-decoration-none d-flex align-items-center hover-link">
-                    <i class="fas fa-chevron-right me-2 small text-primary"></i>About Us
-                  </a>
-                </li>
-                <li class="mb-2">
-                  <a href="#" class="text-light text-decoration-none d-flex align-items-center hover-link">
-                    <i class="fas fa-chevron-right me-2 small text-primary"></i>Contact
-                  </a>
-                </li>
-                <li class="mb-2">
-                  <a href="function_rooms.php" class="text-light text-decoration-none d-flex align-items-center hover-link">
-                    <i class="fas fa-chevron-right me-2 small text-primary"></i>Function Room
-                  </a>
-                </li>
-              </ul>
+        <div class="text-black">
+          <p class="mb-3 d-flex align-items-start">
+            <i class="fas fa-map-marker-alt me-3 mt-1 flex-shrink-0" style="color: #000e6c"></i>
+            <span>19 Scout Bayoran St., Brgy. South Triangle<br>Quezon City, Philippines</span>
+          </p>
+          <p class="mb-3 d-flex align-items-start">
+            <i class="fas fa-phone me-3 mt-1 flex-shrink-0" style="color: #000e6c"></i>
+            <span>(02) 7752-2527 | (02) 8285-6585</span>
+          </p>
+          <p class="mb-0 d-flex align-items-start">
+            <i class="fas fa-envelope me-3 mt-1 flex-shrink-0" style="color: #000e6c"></i>
+            <span>membership@psmeinc.org.ph<br class="d-sm-none"> | <br class="d-sm-none">icto@psmeinc.org.ph</span>
+          </p>
+        </div>
+      </div>
+      <div class="col-lg-6">
+        <div class="row">
+          <div class="col-md-6">
+            <h6 class="fw-bold mb-3 text-black">Quick Links</h6>
+            <ul class="list-unstyled">
+              <li class="mb-2">
+                <a href="dashboard.php" class="text-black text-decoration-none d-flex align-items-center hover-link">
+                  <i class="fas fa-chevron-right me-2 small" style="color: #000e6c"></i>Home
+                </a>
+              </li>
+              <li class="mb-2">
+                <a href="about.php" class="text-black text-decoration-none d-flex align-items-center hover-link">
+                  <i class="fas fa-chevron-right me-2 small" style="color: #000e6c"></i>About Us
+                </a>
+              </li>
+              <li class="mb-2">
+                <a href="function_rooms.php" class="text-black text-decoration-none d-flex align-items-center hover-link">
+                  <i class="fas fa-chevron-right me-2 small" style="color: #000e6c"></i>Function Room
+                </a>
+              </li>
+            </ul>
+          </div>
+          <div class="col-md-6">
+            <h6 class="fw-bold mb-3 text-black">Connect With Us</h6>
+            <div class="d-flex gap-3 mb-4">
+              <a href="https://www.facebook.com/psmeinc" class="fs-5 hover-link" style="color: #000e6c">
+                <i class="fab fa-facebook"></i>
+              </a>
+              <a href="#" class="fs-5 hover-link" style="color: #000e6c">
+                <i class="fab fa-twitter"></i>
+              </a>
+              <a href="#" class="fs-5 hover-link" style="color: #000e6c">
+                <i class="fab fa-linkedin"></i>
+              </a>
+              <a href="#" class="fs-5 hover-link" style="color: #000e6c">
+                <i class="fab fa-instagram"></i>
+              </a>
             </div>
-            <div class="col-md-6">
-              <h6 class="fw-bold mb-3 text-white">Connect With Us</h6>
-              <div class="d-flex gap-3 mb-4">
-                <a href="#" class="text-light fs-5 hover-link">
-                  <i class="fab fa-facebook"></i>
-                </a>
-                <a href="#" class="text-light fs-5 hover-link">
-                  <i class="fab fa-twitter"></i>
-                </a>
-                <a href="#" class="text-light fs-5 hover-link">
-                  <i class="fab fa-linkedin"></i>
-                </a>
-                <a href="#" class="text-light fs-5 hover-link">
-                  <i class="fab fa-instagram"></i>
-                </a>
-              </div>
-              <div class="bg-secondary bg-opacity-25 rounded-custom p-3 border border-secondary border-opacity-50">
-                <h6 class="fw-medium mb-2 text-white small">Stay Updated</h6>
-                <p class="text-light small mb-0">Get the latest convention updates and announcements.</p>
-              </div>
+            <div class="bg-secondary bg-opacity-25 rounded-custom p-3 border border-secondary border-opacity-50">
+              <h6 class="fw-bold mb-2 text-black small">Stay Updated</h6>
+              <p class="text-black small mb-0">Get the latest convention updates and announcements.</p>
             </div>
           </div>
         </div>
       </div>
     </div>
-    
-    <!-- Bottom Footer -->
-    <div class="py-3 position-relative" style="background: linear-gradient(135deg, var(--primary-color), var(--primary-dark));">
-      <div class="container">
-        <div class="row align-items-center g-2">
-          <div class="col-md-6 col-12">
-            <p class="mb-0 small text-white opacity-75 text-center text-md-start">© 2025 PSME. All rights reserved.</p>
-          </div>
-          <div class="col-md-6 col-12 text-center text-md-end">
-            <p class="mb-0 small text-white opacity-75">
-              Developed with <i class="fas fa-heart text-danger mx-1"></i> by 
-              <strong class="text-white">PSME - ICTO</strong> and Jemuel Agban
-            </p>
-          </div>
+  </div>
+  
+  <!-- Bottom Footer -->
+  <div class="py-3 position-relative" style="background: var(--primary-color)">
+    <div class="container">
+      <div class="row align-items-center g-2">
+        <div class="col-md-6 col-12">
+          <p class="mb-0 small text-white text-center text-md-start">© 2025 PSME. All rights reserved.</p>
+        </div>
+        <div class="col-md-6 col-12 text-center text-md-end">
+          <p class="mb-0 small text-white">
+            Developed with <i class="fas fa-heart text-danger mx-1"></i> by 
+            <strong class="text-white">PSME - ICTO</strong> and Jemuel Agban
+          </p>
         </div>
       </div>
     </div>
-  </footer>
+  </div>
+</footer>
 
   <!-- Bootstrap JS and dependencies -->
   <script src="https://cdn.jsdelivr.net/npm/@popperjs/core@2.11.6/dist/umd/popper.min.js"></script>

@@ -17,6 +17,18 @@ if (!function_exists('e')) {
     function e($s){ return htmlspecialchars((string)$s, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8'); }
 }
 
+// Add: asset URL normalizer (works from any subfolder, e.g., /dashboard)
+if (!function_exists('asset_url')) {
+    function asset_url($path) {
+        $path = (string)$path;
+        if ($path === '') return '';
+        if (preg_match('#^https?://#i', $path)) return $path; // absolute URL
+        $base = rtrim(dirname(dirname($_SERVER['SCRIPT_NAME'])), '/\\'); // -> /NatconDash1
+        if ($base === '' || $base === '.') $base = '';
+        return $base . '/' . ltrim($path, '/'); // -> /NatconDash1/uploads/...
+    }
+}
+
 $sid = isset($_GET['id']) && is_numeric($_GET['id']) ? (int)$_GET['id'] : 0;
 if ($sid <= 0) { echo "Speaker not found."; exit; }
 
@@ -38,17 +50,10 @@ if (!$s) { echo "Speaker not found."; exit; }
 $attMsg = $_SESSION['att_msg'] ?? null;
 unset($_SESSION['att_msg']);
 
-// resolve photo path (works with "uploads/..." saved by admin)
-$photo = null;
+// resolve photo path via asset_url (admin saves "uploads/..." relative path)
+$photoUrl = '';
 if (!empty($s['photo_url'])) {
-    $raw = (string)$s['photo_url'];
-    if (preg_match('#^https?://#i',$raw) || strpos($raw,'/') === 0) {
-        $photo = $raw;
-    } else {
-        $fs = __DIR__ . '/../' . ltrim($raw,'/');
-        if (is_file($fs)) $photo = '../' . ltrim($raw,'/');
-        else $photo = $raw;
-    }
+    $photoUrl = asset_url($s['photo_url']);
 }
 
 function fmt_time($t){ if (!$t) return ''; $dt=@date_create($t); return $dt?date_format($dt,'g:i A'):htmlspecialchars((string)$t,ENT_QUOTES|ENT_SUBSTITUTE,'UTF-8'); }
@@ -82,13 +87,12 @@ body{background:#0b2a59;color:#fff;font-family:system-ui,Segoe UI,Roboto}
 
   <div class="hero">
     <div class="avatar">
-      <?php if (!empty($photo) && (preg_match('#^https?://#i',$photo) || @getimagesize($_SERVER['DOCUMENT_ROOT'].'/'.ltrim(preg_replace('#^https?://[^/]+#i','',$photo),'/')) !== false)): ?>
-        <img src="<?= e($photo) ?>" alt="">
+      <?php if (!empty($photoUrl)): ?>
+        <img src="<?= e($photoUrl) ?>" alt="">
       <?php else: ?>
         <svg width="120" height="120" viewBox="0 0 24 24"><rect width="24" height="24" rx="4" fill="#e9ecef"/><path d="M12 12a3 3 0 100-6 3 3 0 000 6z" fill="#adb5bd"/></svg>
       <?php endif; ?>
     </div>
-
     <div style="flex:1">
       <h2><?= e($s['name']) ?></h2>
       <p class="mb-0"><?= e($s['title']) ?></p>
@@ -111,9 +115,11 @@ body{background:#0b2a59;color:#fff;font-family:system-ui,Segoe UI,Roboto}
 
     <div class="actions d-flex flex-column align-items-center">
       <button id="btnAttendance" class="btn btn-yellow">Attendance</button>
-      <a class="btn btn-gray" href="#">Quiz</a>
       <a class="btn btn-gray" href="#">Speaker Evaluation</a>
       <a class="btn btn-gray" href="#">Presentation</a>
+      <div class="mt-3 d-flex gap-2">
+        <a class="btn btn-warning" href="quiz.php?speaker_id=<?= (int)($_GET['id'] ?? 0) ?>">Take Quiz</a>
+      </div>
       <!-- certificate button may be added by admin toggle elsewhere -->
     </div>
   </div>
@@ -122,20 +128,17 @@ body{background:#0b2a59;color:#fff;font-family:system-ui,Segoe UI,Roboto}
     <div class="card" style="border-radius:12px;">
       <div class="card-body">
         <h6 class="card-title">Mark Attendance</h6>
-        <form method="post" action="../api/attend.php">
-          <input type="hidden" name="speaker_id" value="<?= (int)$s['id'] ?>">
+        <form action="../api/attend.php" method="post" class="mt-3" novalidate>
           <div class="mb-2">
-            <label class="form-label small">Your name</label>
-            <input name="attendee_name" class="form-control" required>
+            <label class="form-label">Name</label>
+            <input type="text" name="attendee_name" class="form-control" required>
           </div>
-          <div class="mb-2">
-            <label class="form-label small">Email (optional)</label>
-            <input name="attendee_email" class="form-control" type="email">
+          <div class="mb-3">
+            <label class="form-label">Email</label>
+            <input type="email" name="attendee_email" class="form-control" required>
           </div>
-          <div class="d-flex gap-2">
-            <button class="btn btn-primary">Submit Attendance</button>
-            <button type="button" id="cancelAttend" class="btn btn-link">Cancel</button>
-          </div>
+          <input type="hidden" name="speaker_id" value="<?= (int)($_GET['id'] ?? 0) ?>">
+          <button class="btn btn-primary">Submit Attendance</button>
         </form>
       </div>
     </div>
@@ -143,14 +146,75 @@ body{background:#0b2a59;color:#fff;font-family:system-ui,Segoe UI,Roboto}
 
 </div>
 
+<!-- Toast container -->
+<div class="position-fixed top-0 end-0 p-3" style="z-index:1080">
+  <div id="toastRequiredEmail" class="toast align-items-center text-bg-danger border-0" role="alert" aria-live="assertive" aria-atomic="true" data-bs-delay="2500">
+    <div class="d-flex">
+      <div class="toast-body" id="toastRequiredEmailMsg">Email is required.</div>
+      <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast" aria-label="Close"></button>
+    </div>
+  </div>
+</div>
+
+<!-- Bootstrap JS (needed for toast) -->
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+
 <script>
 document.getElementById('btnAttendance').addEventListener('click', function(){
-  document.getElementById('attendanceForm').style.display='block';
-  window.scrollTo({top: document.getElementById('attendanceForm').offsetTop-40, behavior:'smooth'});
+  const formWrap = document.getElementById('attendanceForm');
+  formWrap.style.display='block';
+  window.scrollTo({top: formWrap.offsetTop-40, behavior:'smooth'});
 });
-document.getElementById('cancelAttend').addEventListener('click', function(){
-  document.getElementById('attendanceForm').style.display='none';
-});
+
+// Guard: only bind if cancel button exists
+const cancelBtn = document.getElementById('cancelAttend');
+if (cancelBtn) {
+  cancelBtn.addEventListener('click', function(){
+    document.getElementById('attendanceForm').style.display='none';
+  });
+}
+
+function showToast(msg) {
+  const el = document.getElementById('toastRequiredEmail');
+  const body = document.getElementById('toastRequiredEmailMsg');
+  if (body) body.textContent = msg || 'Email is required.';
+  const t = bootstrap.Toast.getOrCreateInstance(el);
+  t.show();
+}
+
+(function(){
+  const form = document.querySelector('#attendanceForm form');
+  if (!form) return;
+
+  form.addEventListener('submit', function(e){
+    // Use HTML5 validation but show custom toast instead of page refresh
+    const email = form.querySelector('input[name="attendee_email"]');
+    const isEmpty = !email || email.value.trim() === '';
+
+    // When novalidate is set, checkValidity() returns false if any required/format invalid
+    if (isEmpty) {
+      e.preventDefault();
+      e.stopPropagation();
+      showToast('Email is required.');
+      return;
+    }
+    if (!email.checkValidity()) {
+      e.preventDefault();
+      e.stopPropagation();
+      showToast('Enter a valid email address.');
+      return;
+    }
+    // Optionally validate name too (already required)
+    const name = form.querySelector('input[name="attendee_name"]');
+    if (!name || name.value.trim() === '') {
+      e.preventDefault();
+      e.stopPropagation();
+      showToast('Name is required.');
+      return;
+    }
+    // If all good, allow submit
+  });
+})();
 </script>
 </body>
 </html>
