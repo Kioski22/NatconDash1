@@ -9,11 +9,29 @@ unset($_SESSION['toast']);
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Login</title>
-  <link rel="stylesheet" href="css/login.css" />
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;600;700&display=swap" rel="stylesheet">
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link rel="stylesheet" href="css/login.css" />
+  <style>
+    /* Safe layout overrides */
+    .login-container{
+      min-height:100vh; display:flex; align-items:center; justify-content:center; background:#f8fafc;
+    }
+    .login-card{
+      display:flex; flex-wrap:wrap; max-width:1000px; width:100%;
+      background:#fff; border-radius:16px; overflow:hidden;
+      box-shadow:0 10px 30px rgba(0,0,0,.1);
+    }
+    .login-image{ flex:1 1 45%; min-width:300px; max-height:600px; display:block; }
+    .login-image img{ width:100%; height:100%; object-fit:cover; display:block; }
+    .login-form{ flex:1 1 55%; min-width:300px; padding:2rem 2.5rem; }
+    @media (max-width: 768px){
+      .login-image{ display:none !important; }
+      .login-form{ flex:1 1 100%; padding:1.5rem; }
+    }
+  </style>
 </head>
 <body>
 
@@ -24,7 +42,7 @@ unset($_SESSION['toast']);
     </div>
     <div class="login-form">
       <form id="loginForm" method="post" action="../api/api_login.php" novalidate>
-        <h2>LOGIN</h2>
+        <h2 class="fw-bold">LOGIN</h2>
 
         <label for="email">Email</label>
         <input type="email" id="email" name="email" placeholder="Enter your email" required />
@@ -40,6 +58,10 @@ unset($_SESSION['toast']);
 
         <div class="forgot-password">
           <a href="signup.php">Don't have an account? Sign up</a>
+        </div>
+
+        <div class="dashboard fw-bold fs-6 mt-5 text-center">
+          <a href="../dashboard/dashboard.php">Back to Dashboard</a>
         </div>
 
         <!-- Loading Overlay -->

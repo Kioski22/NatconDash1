@@ -61,7 +61,11 @@ $stmt->bind_param('issss', $speaker_id, $name, $email, $ip, $ua);
 if ($stmt->execute()) {
     // Mark session fingerprint to prevent re-submission without email
     $_SESSION['attend_fp'][$speaker_id] = true;
-    back_to_speaker($speaker_id, ['success' => 'Attendance submitted. Thank you!']);
+    $_SESSION['attended_speakers'] = $_SESSION['attended_speakers'] ?? [];
+    $_SESSION['attended_speakers'][(int)$_POST['speaker_id']] = 1;
+    $_SESSION['att_msg'] = ['success' => 'Attendance recorded.'];
+    header('Location: ../dashboard/speaker_form.php?id='.(int)$_POST['speaker_id']);
+    exit;
 } else {
     // If unique index blocks duplicates, show friendly message
     if ($db->errno == 1062) {

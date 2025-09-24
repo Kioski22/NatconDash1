@@ -53,7 +53,7 @@ $THEME = [
 <html lang="en">
 <head>
     <meta charset="utf-8">
-    <title>73rd PEME National Convention</title>
+    <title>Function Rooms - 73rd PSME National Convention</title>
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
     <!-- Google Fonts -->
@@ -124,7 +124,11 @@ $THEME = [
       box-shadow: 0 8px 25px rgba(245, 158, 11, 0.4);
     }
         
-    body { background: var(--primary-color); color:#fff;}
+    body { 
+      background: var(--primary-color); 
+      color:#fff;
+      padding-top: 70px;
+    }
 
     .text-gradient {
       background: linear-gradient(135deg, var(--primary-color), var(--secondary-color));
@@ -133,38 +137,40 @@ $THEME = [
       background-clip: text;
     }
 
-    #main {
-        margin-top: 50px;
+    .page-title {
+        background: white;
+        color: black;
+        padding: 15px;
+        text-align: center;
+        font-weight: 600;
+        margin-bottom: 30px;
     }
-        .page-title {
-            background: white;
-            color: black;
-            padding: 15px;
-            text-align: center;
-            font-weight: 600;
-            margin-bottom: 30px;
-        }
-        .function-room-card {
-            background: rgba(255,255,255,0.1);
-            border-radius: 10px;
-            padding: 20px;
-            margin-bottom: 15px;
-            cursor: pointer;
-            transition: all 0.3s ease;
-            border: 1px solid rgba(255,255,255,0.2);
-        }
-        .function-room-card:hover:not(.disabled) {
-            transform: translateY(-5px);
-            background: rgba(255,255,255,0.15);
-        }
-        .function-room-card.disabled {
-            opacity: 0.5;
-            cursor: not-allowed;
-        }
-        .function-room-date {
-            color: <?= $THEME['text-muted'] ?>;
-            font-size: 0.9rem;
-        }
+
+    .day-number {
+      color: var(--secondary-color);
+    }
+
+    .function-room-card {
+        background: rgba(255,255,255,0.1);
+        border-radius: 10px;
+        padding: 20px;
+        margin-bottom: 15px;
+        cursor: pointer;
+        transition: all 0.3s ease;
+        border: 1px solid rgba(255,255,255,0.2);
+    }
+    .function-room-card:hover:not(.disabled) {
+        transform: translateY(-5px);
+        background: rgba(255,255,255,0.15);
+    }
+    .function-room-card.disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+    }
+    .function-room-date {
+        color: <?= $THEME['text-muted'] ?>;
+        font-size: 0.9rem;
+    }
     </style>
 </head>
 <body>
@@ -197,29 +203,20 @@ $THEME = [
   </nav>
 
   <div class="main" id="main">
-    <!-- Page Title -->
-    <div class="page-title mt-5">FUNCTION ROOMS</div>
-
-    <!-- Info -->
-    <div class="container mb-3">
-        <div class="alert alert-info small">
-            <strong>Note:</strong> The Day page (dashboard/day.php) was updated.
-            <ul class="mb-0">
-                <li>day.php resolves the requested day from ?day, ?day_id or by matching today's date in the DB.</li>
-                <li>Function rooms and speakers are fetched dynamically.</li>
-                <li>Links here point to day.php?day_id=&lt;id&gt;.</li>
-            </ul>
-        </div>
-    </div>
-
+    <div class="display-6 fw-bold m-5 text-white text-center">FUNCTION ROOMS</div>
     <div class="container">
         <!-- Function Room Cards only -->
-        <div class="row">
-            <div class="col-md-8">
-                <p class="text-muted mb-4">
+        <div class="row justify-content-center">
+            <div class="col-md-8 text-center">
+                <p class="text-white mb-4">
                     Explore the seminars for Day 1 to Day 3.
                     Each day features different speakers and technical topics.
                 </p>
+
+                <!-- Button: How to earn Certificates -->
+                <button id="openCertStepsBtn" class="btn btn-outline-light mb-4" data-bs-toggle="modal" data-bs-target="#certStepsModal">
+                  How to earn your Certificates
+                </button>
 
                 <?php foreach ($days as $d):
                     $dayId = (int)$d['id'];
@@ -231,7 +228,7 @@ $THEME = [
                 ?>
                 <div class="function-room-card <?= $isActive ? '' : 'disabled' ?>" 
                      onclick="<?= $isActive ? "window.location='day.php?day_id={$dayId}'" : '' ?>">
-                    <h4><?= $label ?></h4>
+                    <h4 class="day-number"><?= $label ?></h4>
                     <div class="function-room-date">
                         <?= (new DateTime($dayDate))->format('F j, Y') ?>
                     </div>
@@ -240,12 +237,88 @@ $THEME = [
 
                 <!-- Evaluation Card -->
                 <div class="function-room-card">
-                    <h4>NATIONAL CONVENTION EVALUATION</h4>
+                    <h4 class="day-number">NATIONAL CONVENTION EVALUATION</h4>
                     <div class="function-room-date">Required for certificate generation</div>
                 </div>
             </div>
         </div>
     </div>
     </div>
+
+    <!-- Certificates Steps Modal -->
+    <div class="modal fade" id="certStepsModal" tabindex="-1" aria-labelledby="certStepsModalLabel" aria-hidden="true">
+      <div class="modal-dialog modal-dialog-centered modal-lg">
+        <div class="modal-content" style="color:#111;">
+          <div class="modal-header">
+            <h5 class="modal-title" id="certStepsModalLabel">How to earn your Certificates</h5>
+            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+          </div>
+          <div class="modal-body">
+            <p class="mb-2">Certificates available:</p>
+            <ul class="mb-3">
+              <li>Certificate of Attendance</li>
+              <li>Certificate of Appearance</li>
+              <li>CPD Form</li>
+            </ul>
+
+            <hr>
+
+            <p class="mb-2">Follow these steps:</p>
+            <ol class="mb-3">
+              <li>Select the Day that is enabled (the current day of the convention).</li>
+              <li>Select a Function Room.</li>
+              <li>Select the Speaker in the room you are currently attending.</li>
+              <li><strong>Mark your Attendance</strong> on the speaker’s page. This serves as your attendance for the day.</li>
+              <li>After attendance, take the <strong>Quiz</strong> prepared by the speaker.</li>
+              <li>Submit the <strong>Speaker Evaluation</strong> form.</li>
+            </ol>
+
+            <div class="alert alert-warning">
+              <strong>Important:</strong> You must be physically present in the function room before filling out the attendance on the speaker’s form.
+            </div>
+
+            <p class="mb-0">Certificate generation (when enabled) requires a minimum of 3 days of attendance, and completing the quizzes and speaker evaluation forms.</p>
+          </div>
+          <div class="modal-footer">
+            <button class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+            <a class="btn btn-primary" href="dashboard.php">Go to Dashboard</a>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Bootstrap JS + auto-show once per day -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+      document.addEventListener('DOMContentLoaded', function () {
+        var el = document.getElementById('certStepsModal');
+        if (!el || typeof bootstrap === 'undefined') return;
+
+        var url = new URL(window.location.href);
+        var forceShow = url.searchParams.get('showCert') === '1';
+        var ref = document.referrer || '';
+        var fromDashboard = ref.indexOf('dashboard.php') !== -1;
+
+        var sessionKey = 'certStepsShown_session';
+        var dayKey = 'certStepsShown_' + new Date().toISOString().slice(0,10);
+
+        var shouldShow = false;
+
+        if (forceShow) {
+          shouldShow = true;
+        } else if (fromDashboard && !sessionStorage.getItem(sessionKey)) {
+          shouldShow = true;
+          sessionStorage.setItem(sessionKey, '1');
+        } else if (!localStorage.getItem(dayKey)) {
+          shouldShow = true;
+          localStorage.setItem(dayKey, '1');
+        }
+
+        if (shouldShow) {
+          var modal = new bootstrap.Modal(el, { backdrop: 'static', keyboard: true });
+          modal.show();
+        }
+      });
+    </script>
 </body>
 </html>

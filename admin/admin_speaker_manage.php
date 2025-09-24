@@ -84,6 +84,56 @@ if (!function_exists('handle_photo_upload')) {
     }
 }
 
+// NEW: helper: handle presentation upload (ppt/pptx/pdf), returns relative path or null
+if (!function_exists('handle_presentation_upload')) {
+    function handle_presentation_upload($fileField = 'presentation_file') {
+        if (empty($_FILES[$fileField]) || $_FILES[$fileField]['error'] === UPLOAD_ERR_NO_FILE) {
+            return null;
+        }
+        $f = $_FILES[$fileField];
+        if ($f['error'] !== UPLOAD_ERR_OK) {
+            return ['error' => 'Upload error for presentation file.'];
+        }
+        $maxBytes = 20 * 1024 * 1024; // 20 MB
+        if ($f['size'] > $maxBytes) {
+            return ['error' => 'Presentation too large (max 20MB).'];
+        }
+
+        $allowed = [
+            'application/vnd.openxmlformats-officedocument.presentationml.presentation' => 'pptx',
+            'application/vnd.ms-powerpoint' => 'ppt',
+            'application/pdf' => 'pdf',
+        ];
+
+        $finfo = finfo_open(FILEINFO_MIME_TYPE);
+        $mime = finfo_file($finfo, $f['tmp_name']);
+        finfo_close($finfo);
+
+        // Fallback by extension if mime is ambiguous
+        $extByName = strtolower(pathinfo($f['name'], PATHINFO_EXTENSION));
+        if (!isset($allowed[$mime])) {
+            if (in_array($extByName, ['pptx','ppt','pdf'], true)) {
+                $mime = array_search($extByName, $allowed, true) ?: 'application/pdf';
+            } else {
+                return ['error' => 'Invalid presentation type. Allowed: .pptx, .ppt, .pdf'];
+            }
+        }
+        $ext = $allowed[$mime] ?? $extByName;
+
+        $uploadsDir = __DIR__ . '/../uploads/presentations';
+        if (!is_dir($uploadsDir)) {
+            mkdir($uploadsDir, 0755, true);
+        }
+        $filename = bin2hex(random_bytes(12)) . '.' . $ext;
+        $dest = $uploadsDir . '/' . $filename;
+        if (!move_uploaded_file($f['tmp_name'], $dest)) {
+            return ['error' => 'Failed to store presentation file.'];
+        }
+        // return web relative path
+        return 'uploads/presentations/' . $filename;
+    }
+}
+
 // handle POST actions
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $token = $_POST['csrf_token'] ?? '';
@@ -97,9 +147,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $title = trim($_POST['title'] ?? '');
             $room_id = isset($_POST['room_id']) && is_numeric($_POST['room_id']) ? (int)$_POST['room_id'] : 0;
             $start_time = trim($_POST['start_time'] ?? '') ?: null;
-            $end_time = trim($_POST['end_time'] ?? '') ?: null;              // NEW
+            $end_time = trim($_POST['end_time'] ?? '') ?: null;
             $bio = trim($_POST['bio'] ?? '');
             $photo_url = trim($_POST['photo_url'] ?? null);
+            // NEW
+            $presentation_url = null;
 
             if ($name === '') $errors[] = 'Speaker name is required.';
             if ($room_id <= 0) $errors[] = 'Please choose a function room.';
@@ -110,7 +162,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $errors[] = 'Invalid end time format. Use HH:MM or HH:MM:SS.';
             }
 
-            // handle upload
+            // handle uploads
             $upload = handle_photo_upload('photo_file');
             if (is_array($upload) && isset($upload['error'])) {
                 $errors[] = $upload['error'];
@@ -118,10 +170,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $photo_url = $upload;
             }
 
+            // NEW: presentation upload (optional)
+            $pres = handle_presentation_upload('presentation_file');
+            if (is_array($pres) && isset($pres['error'])) {
+                $errors[] = $pres['error'];
+            } elseif (is_string($pres)) {
+                $presentation_url = $pres;
+            }
+
             if (empty($errors)) {
-                $stmt = $db->prepare("INSERT INTO speakers (room_id, name, title, start_time, end_time, photo_url, bio) VALUES (?, ?, ?, ?, ?, ?, ?)"); // CHANGED
+                // CHANGED: include presentation_url
+                $stmt = $db->prepare("INSERT INTO speakers (room_id, name, title, start_time, end_time, photo_url, presentation_url, bio) VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
                 if ($stmt) {
-                    $stmt->bind_param('issssss', $room_id, $name, $title, $start_time, $end_time, $photo_url, $bio); // CHANGED
+                    $stmt->bind_param('isssssss', $room_id, $name, $title, $start_time, $end_time, $photo_url, $presentation_url, $bio);
                     if ($stmt->execute()) {
                         $success = 'Speaker added.';
                     } else {
@@ -139,9 +200,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $title = trim($_POST['title'] ?? '');
             $room_id = isset($_POST['room_id']) && is_numeric($_POST['room_id']) ? (int)$_POST['room_id'] : 0;
             $start_time = trim($_POST['start_time'] ?? '') ?: null;
-            $end_time = trim($_POST['end_time'] ?? '') ?: null;              // NEW
+            $end_time = trim($_POST['end_time'] ?? '') ?: null;
             $bio = trim($_POST['bio'] ?? '');
             $photo_url = trim($_POST['photo_url'] ?? null);
+            // NEW: keep existing unless replaced
+            $presentation_url = trim($_POST['presentation_url'] ?? '') ?: null;
 
             if ($id <= 0) $errors[] = 'Invalid speaker id.';
             if ($name === '') $errors[] = 'Speaker name is required.';
@@ -153,7 +216,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $errors[] = 'Invalid end time format. Use HH:MM or HH:MM:SS.';
             }
 
-            // handle upload (if provided, replace existing)
+            // photo upload (optional replace)
             $upload = handle_photo_upload('photo_file');
             if (is_array($upload) && isset($upload['error'])) {
                 $errors[] = $upload['error'];
@@ -161,10 +224,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $photo_url = $upload;
             }
 
+            // NEW: presentation upload (optional replace)
+            $pres = handle_presentation_upload('presentation_file');
+            if (is_array($pres) && isset($pres['error'])) {
+                $errors[] = $pres['error'];
+            } elseif (is_string($pres)) {
+                $presentation_url = $pres;
+            }
+
             if (empty($errors)) {
-                $stmt = $db->prepare("UPDATE speakers SET room_id = ?, name = ?, title = ?, start_time = ?, end_time = ?, photo_url = ?, bio = ? WHERE id = ? LIMIT 1"); // CHANGED
+                // CHANGED: include presentation_url
+                $stmt = $db->prepare("UPDATE speakers SET room_id = ?, name = ?, title = ?, start_time = ?, end_time = ?, photo_url = ?, presentation_url = ?, bio = ? WHERE id = ? LIMIT 1");
                 if ($stmt) {
-                    $stmt->bind_param('issssssi', $room_id, $name, $title, $start_time, $end_time, $photo_url, $bio, $id); // CHANGED
+                    $stmt->bind_param('isssssssi', $room_id, $name, $title, $start_time, $end_time, $photo_url, $presentation_url, $bio, $id);
                     if ($stmt->execute()) {
                         $success = 'Speaker updated.';
                     } else {
@@ -243,7 +315,7 @@ if ($r2) {
 // fetch speakers list with room + day info
 $speakers = [];
 $sql = "
-    SELECT s.id, s.name, s.title, s.start_time, s.end_time, s.photo_url, s.room_id,    -- CHANGED
+    SELECT s.id, s.name, s.title, s.start_time, s.end_time, s.photo_url, s.presentation_url, s.room_id,   -- CHANGED
            fr.name AS room_name,
            fd.id AS day_id, fd.label AS day_label, fd.day_date
     FROM speakers s
@@ -260,7 +332,7 @@ if ($res) {
 $edit = null;
 if (isset($_GET['edit']) && is_numeric($_GET['edit'])) {
     $eid = (int)$_GET['edit'];
-    $stmt = $db->prepare("SELECT id, name, title, start_time, end_time, photo_url, bio, room_id FROM speakers WHERE id = ? LIMIT 1"); // CHANGED
+    $stmt = $db->prepare("SELECT id, name, title, start_time, end_time, photo_url, presentation_url, bio, room_id FROM speakers WHERE id = ? LIMIT 1"); // CHANGED
     if ($stmt) {
         $stmt->bind_param('i', $eid);
         $stmt->execute();
@@ -406,6 +478,15 @@ if (isset($_GET['edit']) && is_numeric($_GET['edit'])) {
                 </div>
 
                 <div class="mb-2">
+                  <label class="form-label">Presentation (optional, upload to replace)</label>
+                  <?php if (!empty($edit['presentation_url'])): ?>
+                    <div class="mb-2"><a href="<?= e(asset_url($edit['presentation_url'])) ?>" target="_blank" class="btn btn-sm btn-outline-primary">View Current</a></div>
+                  <?php endif; ?>
+                  <input name="presentation_file" type="file" accept=".ppt,.pptx,.pdf" class="form-control">
+                  <input type="hidden" name="presentation_url" value="<?= e($edit['presentation_url']) ?>">
+                </div>
+
+                <div class="mb-2">
                   <label class="form-label">Short Bio</label>
                   <textarea name="bio" class="form-control" rows="4"><?= e($edit['bio'] ?? '') ?></textarea>
                 </div>
@@ -463,6 +544,11 @@ if (isset($_GET['edit']) && is_numeric($_GET['edit'])) {
                 <div class="mb-2">
                   <label class="form-label">Photo (optional)</label>
                   <input name="photo_file" type="file" accept="image/*" class="form-control">
+                </div>
+
+                <div class="mb-2">
+                  <label class="form-label">Presentation (optional)</label>
+                  <input name="presentation_file" type="file" accept=".ppt,.pptx,.pdf" class="form-control">
                 </div>
 
                 <div class="mb-2">

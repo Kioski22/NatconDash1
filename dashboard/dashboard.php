@@ -24,7 +24,7 @@ $userName = $_SESSION['user_name'] ?? 'Account';
   <!-- Custom CSS -->
   <link rel="stylesheet" href="css/styles.css">
   
-  <style>
+  <>
     :root {
       --primary-color: #111e6c;
       --primary-dark: #1116ec;
@@ -133,7 +133,49 @@ $userName = $_SESSION['user_name'] ?? 'Account';
       -webkit-text-fill-color: transparent;
       background-clip: text;
     }
-    
+
+    .custom-toggler {
+      border: 2px solid #111e6c;
+      border-radius: 5px;
+      background-color: #ffffff;
+      padding: 8px 10px;
+      box-shadow: 0 2px 6px rgba(0, 0, 0, 0.1);
+    }
+
+    .custom-toggler .navbar-toggler-icon {
+      background-image: none;
+      width: 24px;
+      height: 2px;
+      background-color: #111e6c;
+      position: relative;
+      display: inline-block;
+    }
+
+    .custom-toggler .navbar-toggler-icon::before,
+    .custom-toggler .navbar-toggler-icon::after {
+      content: "";
+      background-color: #111e6c;
+      width: 24px;
+      height: 2px;
+      position: absolute;
+      left: 0;
+      transition: 0.3s ease;
+    }
+
+    .custom-toggler .navbar-toggler-icon::before {
+      top: -8px;
+    }
+
+    .custom-toggler .navbar-toggler-icon::after {
+      top: 8px;
+    }
+
+    /* Hover effect */
+    .custom-toggler:hover {
+      background-color: #f0f0f0;
+      border-color: #0e1759;
+    }
+
     .nav-link {
       font-weight: 500;
       transition: all 0.3s ease;
@@ -151,10 +193,6 @@ $userName = $_SESSION['user_name'] ?? 'Account';
     
     html {
       scroll-behavior: smooth;
-    }
-    
-    .rounded-custom {
-      border-radius: 20px;
     }
     
     .badge-custom {
@@ -257,8 +295,8 @@ $userName = $_SESSION['user_name'] ?? 'Account';
         </a>
 
         <!-- Navbar Toggle -->
-        <button class="navbar-toggler border-0 shadow-sm" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
-          <span class="navbar-toggler-icon"></span>
+        <button class="navbar-toggler custom-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
+            <span class="navbar-toggler-icon"></span>
         </button>
 
         <!-- Navbar Links -->
@@ -390,11 +428,6 @@ $userName = $_SESSION['user_name'] ?? 'Account';
       <div class="container">
         <div class="row">
           <div class="col-12 text-center">
-            <div class="mb-4">
-              <span class="badge badge-custom bg-white fs-8 px-3 py-2 rounded-pill mb-3">
-                <i class="fas fa-calendar-check me-2"></i>Event Schedule
-              </span>
-            </div>
             <h2 class="display-6 fw-bold mb-4 text-white">Convention Programme</h2>
             <p class="lead text-white mb-5 mx-auto" style="max-width: 650px;">
               Discover our comprehensive schedule packed with expert sessions, networking opportunities, and innovation showcases.

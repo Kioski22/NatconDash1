@@ -4,33 +4,121 @@ session_start();
 require_once __DIR__ . '/../db.php';
 
 // normalize DB connection
-if (isset($conn) && $conn instanceof mysqli) {
-    $db = $conn;
-} elseif (isset($mysqli) && $mysqli instanceof mysqli) {
-    $db = $mysqli;
-} else {
-    $db = null;
-}
-if (!($db instanceof mysqli)) { http_response_code(500); echo "DB unavailable"; exit; }
+if (isset($conn) && $conn instanceof mysqli) { $db = $conn; }
+elseif (isset($mysqli) && $mysqli instanceof mysqli) { $db = $mysqli; }
+else { http_response_code(500); exit('DB unavailable'); }
 
+// NEW: helpers (escape + asset URL) to fix fatal error
 if (!function_exists('e')) {
     function e($s){ return htmlspecialchars((string)$s, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8'); }
 }
-
-// Add: asset URL normalizer (works from any subfolder, e.g., /dashboard)
 if (!function_exists('asset_url')) {
     function asset_url($path) {
         $path = (string)$path;
         if ($path === '') return '';
-        if (preg_match('#^https?://#i', $path)) return $path; // absolute URL
-        $base = rtrim(dirname(dirname($_SERVER['SCRIPT_NAME'])), '/\\'); // -> /NatconDash1
+        if (preg_match('#^https?://#i', $path)) return $path;
+        $base = rtrim(dirname(dirname($_SERVER['SCRIPT_NAME'] ?? '')), '/\\'); // -> /NatconDash1
         if ($base === '' || $base === '.') $base = '';
-        return $base . '/' . ltrim($path, '/'); // -> /NatconDash1/uploads/...
+        return $base . '/' . ltrim($path, '/');
     }
 }
 
-$sid = isset($_GET['id']) && is_numeric($_GET['id']) ? (int)$_GET['id'] : 0;
-if ($sid <= 0) { echo "Speaker not found."; exit; }
+// NEW: safe table-exists helper to avoid prepare() errors on missing tables
+function db_table_exists(mysqli $db, string $table): bool {
+    $sql = "SELECT 1 FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name = ? LIMIT 1";
+    $st = $db->prepare($sql);
+    if (!$st) return false;
+    $st->bind_param('s', $table);
+    $st->execute();
+    $st->bind_result($d);
+    $ok = $st->fetch();
+    $st->close();
+    return (bool)$ok;
+}
+
+// --- NEW: per-speaker gating helpers ---
+function current_user_identity(): array {
+    $uid = isset($_SESSION['user_id']) ? (int)$_SESSION['user_id'] : 0;
+    $email = trim((string)($_SESSION['user_email'] ?? $_SESSION['email'] ?? '')); // adjust if you store email differently
+    return [$uid, $email];
+}
+
+function has_attendance(mysqli $db, int $speakerId, int $userId, string $email): bool {
+    // Try by user_id
+    if ($userId > 0) {
+        if ($st = $db->prepare("SELECT 1 FROM speaker_attendance WHERE speaker_id = ? AND user_id = ? LIMIT 1")) {
+            $st->bind_param('ii', $speakerId, $userId);
+            $st->execute(); $st->bind_result($d); $ok = $st->fetch(); $st->close();
+            if ($ok) return true;
+        }
+    }
+    // Fallback by email
+    if ($email !== '') {
+        if ($st = $db->prepare("SELECT 1 FROM speaker_attendance WHERE speaker_id = ? AND attendee_email = ? LIMIT 1")) {
+            $st->bind_param('is', $speakerId, $email);
+            $st->execute(); $st->bind_result($d); $ok = $st->fetch(); $st->close();
+            if ($ok) return true;
+        }
+    }
+    // Session fallback (legacy)
+    return !empty($_SESSION['attended_speakers'][$speakerId]);
+}
+
+function has_quiz_submission(mysqli $db, int $speakerId, int $userId, string $email): bool {
+    // Preferred: via quizzes table (quiz -> speaker)
+    if ($userId > 0) {
+        if ($st = $db->prepare("SELECT 1 FROM quiz_responses qr JOIN quizzes q ON q.id = qr.quiz_id WHERE q.speaker_id = ? AND qr.user_id = ? LIMIT 1")) {
+            $st->bind_param('ii', $speakerId, $userId);
+            $st->execute(); $st->bind_result($d); $ok = $st->fetch(); $st->close();
+            if ($ok) return true;
+        }
+    }
+    // Fallback: if quiz_responses has speaker_id
+    if ($userId > 0) {
+        if ($st = $db->prepare("SELECT 1 FROM quiz_responses WHERE speaker_id = ? AND user_id = ? LIMIT 1")) {
+            $st->bind_param('ii', $speakerId, $userId);
+            $st->execute(); $st->bind_result($d); $ok = $st->fetch(); $st->close();
+            if ($ok) return true;
+        }
+    }
+    // Email fallback
+    if ($email !== '') {
+        if ($st = $db->prepare("SELECT 1 FROM quiz_responses qr JOIN quizzes q ON q.id = qr.quiz_id WHERE q.speaker_id = ? AND (qr.user_email = ? OR qr.email = ?) LIMIT 1")) {
+            $st->bind_param('iss', $speakerId, $email, $email);
+            $st->execute(); $st->bind_result($d); $ok = $st->fetch(); $st->close();
+            if ($ok) return true;
+        }
+        if ($st = $db->prepare("SELECT 1 FROM quiz_responses WHERE speaker_id = ? AND (user_email = ? OR email = ?) LIMIT 1")) {
+            $st->bind_param('iss', $speakerId, $email, $email);
+            $st->execute(); $st->bind_result($d); $ok = $st->fetch(); $st->close();
+            if ($ok) return true;
+        }
+    }
+    return false;
+}
+
+function has_evaluation(mysqli $db, int $speakerId, int $userId, string $email): bool {
+    if ($userId > 0) {
+        if ($st = $db->prepare("SELECT 1 FROM speaker_evaluations WHERE speaker_id = ? AND user_id = ? LIMIT 1")) {
+            $st->bind_param('ii', $speakerId, $userId);
+            $st->execute(); $st->bind_result($d); $ok = $st->fetch(); $st->close();
+            if ($ok) return true;
+        }
+    }
+    if ($email !== '') {
+        if ($st = $db->prepare("SELECT 1 FROM speaker_evaluations WHERE speaker_id = ? AND (user_email = ? OR email = ?) LIMIT 1")) {
+            $st->bind_param('iss', $speakerId, $email, $email);
+            $st->execute(); $st->bind_result($d); $ok = $st->fetch(); $st->close();
+            if ($ok) return true;
+        }
+    }
+    // Session fallback (legacy)
+    return !empty($_SESSION['evaluated_speakers'][$speakerId]);
+}
+// --- END helpers ---
+
+$speakerId = isset($_GET['id']) ? (int)$_GET['id'] : 0;
+if ($speakerId <= 0) { echo "Speaker not found."; exit; }
 
 // fetch speaker + room/day
 $stmt = $db->prepare("
@@ -40,7 +128,7 @@ $stmt = $db->prepare("
   LEFT JOIN function_room_days fd ON fd.id = fr.day_id
   WHERE s.id = ? LIMIT 1
 ");
-$stmt->bind_param('i',$sid);
+$stmt->bind_param('i',$speakerId);
 $stmt->execute();
 $s = $stmt->get_result()->fetch_assoc();
 $stmt->close();
@@ -56,6 +144,79 @@ if (!empty($s['photo_url'])) {
     $photoUrl = asset_url($s['photo_url']);
 }
 
+// NEW: quiz gating — find quiz and submission
+$user_id = isset($_SESSION['user_id']) ? (int)$_SESSION['user_id'] : 0;
+$quizId = 0; $hasQuiz = false; $hasSubmitted = false;
+if ($st = $db->prepare("SELECT id FROM quizzes WHERE speaker_id = ? LIMIT 1")) {
+    $st->bind_param('i', $speakerId);
+    $st->execute();
+    $st->bind_result($quizId);
+    if ($st->fetch()) { $hasQuiz = true; }
+    $st->close();
+}
+// NEW: fallback if you only have quiz_questions table
+if (!$hasQuiz && db_table_exists($db, 'quiz_questions')) {            // CHANGED
+    if ($st = $db->prepare("SELECT 1 FROM quiz_questions WHERE speaker_id = ? LIMIT 1")) {
+        $st->bind_param('i', $speakerId);
+        $st->execute();
+        $st->bind_result($dummy);
+        if ($st->fetch()) { $hasQuiz = true; }
+        $st->close();
+    }
+}
+
+if ($hasQuiz && $user_id > 0 && $quizId > 0) {
+    if ($st = $db->prepare("SELECT 1 FROM quiz_responses WHERE quiz_id = ? AND user_id = ? LIMIT 1")) {
+        $st->bind_param('ii', $quizId, $user_id);
+        $st->execute();
+        $st->bind_result($dummy);
+        if ($st->fetch()) { $hasSubmitted = true; }
+        $st->close();
+    }
+}
+// session fallback for guests
+if (!$hasSubmitted && !empty($_SESSION['quiz_submitted'][$speakerId])) {
+    $hasSubmitted = true;
+}
+
+// Optional: presentation link if uploaded by admin
+$presentationUrl = !empty($s['presentation_url']) ? asset_url($s['presentation_url']) : '';
+$evaluationUrl = "evaluation.php?speaker_id=" . (int)$speakerId;
+$hasPresentation = !empty($presentationUrl);
+
+// NEW: attendance status (per speaker)
+$hasAttendance = false;
+if ($user_id > 0) {
+    if ($st = $db->prepare("SELECT 1 FROM speaker_attendance WHERE speaker_id = ? AND user_id = ? LIMIT 1")) {
+        $st->bind_param('ii', $speakerId, $user_id);
+        $st->execute(); $st->bind_result($d);
+        if ($st->fetch()) $hasAttendance = true;
+        $st->close();
+    }
+}
+if (!$hasAttendance && !empty($_SESSION['attended_speakers'][$speakerId])) {
+    $hasAttendance = true;
+}
+
+// NEW: evaluation status (per speaker)
+$hasEvaluation = false;
+if ($user_id > 0) {
+    if ($st = $db->prepare("SELECT 1 FROM speaker_evaluations WHERE speaker_id = ? AND user_id = ? LIMIT 1")) {
+        $st->bind_param('ii', $speakerId, $user_id);
+        $st->execute(); $st->bind_result($dummy);
+        if ($st->fetch()) { $hasEvaluation = true; }
+        $st->close();
+    }
+}
+if (!$hasEvaluation && !empty($_SESSION['evaluated_speakers'][$speakerId])) {
+    $hasEvaluation = true;
+}
+
+// NEW: Locks (per speaker, strictly sequential)
+$quizLocked = (!$hasAttendance) || $hasSubmitted || !$hasQuiz;
+$evalLocked = (!$hasSubmitted) || $hasEvaluation;    // must finish quiz; never unlock early
+$presLocked = (!$hasEvaluation) || (!$hasPresentation);
+
 function fmt_time($t){ if (!$t) return ''; $dt=@date_create($t); return $dt?date_format($dt,'g:i A'):htmlspecialchars((string)$t,ENT_QUOTES|ENT_SUBSTITUTE,'UTF-8'); }
 ?>
 <!doctype html>
@@ -65,9 +226,80 @@ function fmt_time($t){ if (!$t) return ''; $dt=@date_create($t); return $dt?date
 <title><?= e($s['name']) ?> — Speaker</title>
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+<!-- Google Fonts -->
+  <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+
 <style>
-body{background:#0b2a59;color:#fff;font-family:system-ui,Segoe UI,Roboto}
-.topbar{padding:12px 18px;color:#fff;display:flex;justify-content:space-between;align-items:center}
+  :root {
+      --primary-color: #111e6c;
+      --primary-dark: #1116ec;
+      --primary-light: #dbeafe;
+      --secondary-color: #e27900ff;
+      --secondary-dark: #ce6e00ff;
+      --success-color: #10b981;
+      --dark-color: #111e6c;
+      --light-gray: #f8fafc;
+      --border-color: #e5e7eb;
+    }
+    
+    * {
+      font-family: 'Poppins', sans-serif;
+    }
+    
+    .navbar {
+      backdrop-filter: blur(20px);
+      background: rgba(255, 255, 255, 0.95) !important;
+      border-bottom: 1px solid var(--border-color);
+    }
+    
+    .navbar-brand span {
+      background: linear-gradient(135deg, var(--primary-color), var(--secondary-color));
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+    
+    .btn-primary {
+      background: linear-gradient(135deg, var(--primary-color), var(--primary-dark));
+      border: none;
+      box-shadow: 0 4px 15px rgba(37, 99, 235, 0.3);
+    }
+    
+    .btn-primary:hover {
+      background: linear-gradient(135deg, var(--primary-dark), var(--primary-color));
+      transform: translateY(-2px);
+      box-shadow: 0 8px 25px rgba(37, 99, 235, 0.4);
+    }
+    
+    .btn-outline-primary {
+      border: 2px solid var(--primary-color);
+      color: var(--primary-color);
+    }
+    
+    .btn-outline-primary:hover {
+      background: var(--primary-color);
+      transform: translateY(-2px);
+      box-shadow: 0 8px 25px rgba(37, 99, 235, 0.3);
+    }
+    
+    .btn-warning {
+      background: linear-gradient(135deg, var(--secondary-color), var(--secondary-dark));
+      border: none;
+      box-shadow: 0 4px 15px rgba(245, 158, 11, 0.3);
+    }
+    
+    .btn-warning:hover {
+      background: linear-gradient(135deg, var(--secondary-dark), var(--secondary-color));
+      transform: translateY(-2px);
+      box-shadow: 0 8px 25px rgba(245, 158, 11, 0.4);
+    }
+
+    body { 
+      background: var(--primary-color); 
+      color:#fff;
+      padding-top: 70px;
+    }
+    
 .hero{background:#fff;color:#0b2a59;border-radius:8px;padding:28px;display:flex;gap:24px;align-items:center;margin-bottom:22px}
 .avatar{width:120px;height:120px;border-radius:999px;overflow:hidden;background:#f1f3f5;display:flex;align-items:center;justify-content:center}
 .avatar img{width:100%;height:100%;object-fit:cover}
@@ -76,15 +308,44 @@ body{background:#0b2a59;color:#fff;font-family:system-ui,Segoe UI,Roboto}
 .btn-gray{background:#7f8793;border:none;color:#fff}
 .actions .btn{width:260px;margin:8px auto;border-radius:20px;padding:10px 18px}
 .att-card{max-width:560px;margin:18px auto}
+/* NEW: locked state visual */
+.btn-locked{opacity:.6; cursor:not-allowed; pointer-events:none;}  /* NEW: block clicks */
+/* NEW: unlocked (clickable) state */
+.btn-ready{background:#22c55e;border:none;color:#fff}
+.btn-ready:hover{filter:brightness(0.95)}
 </style>
 </head>
-<body>
-<div class="container py-4">
-  <div class="topbar">
-    <div><strong>73RD PSME NATIONAL CONVENTION</strong></div>
-    <div><a href="day.php?day=<?= urlencode((string)$s['day_number']?:'1') ?>" style="color:#fff;text-decoration:none">&lt; Back to Day</a></div>
-  </div>
 
+<body>
+<!-- Header Section -->
+  <nav class="navbar navbar-expand-lg navbar-light shadow-custom fixed-top">
+    <div class="container">
+      <!-- Logo + Title -->
+      <a class="navbar-brand d-flex align-items-center" href="dashboard.php">
+        <img src="../image/natcon.jpg" alt="PSME Logo" class="me-3 rounded-circle" style="height: 55px;">
+        <div>
+          <span class="fs-5 fw-bold d-block">73rd PSME</span>
+          <small class="d-none d-md-block fw-medium">National Convention</small>
+        </div>
+      </a>
+
+      <!-- Navbar Toggle -->
+      <button class="navbar-toggler border-0 shadow-sm" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
+        <span class="navbar-toggler-icon"></span>
+      </button>
+
+      <!-- Navbar Links -->
+      <div class="collapse navbar-collapse" id="navbarNav">
+        <ul class="navbar-nav ms-auto align-items-center">
+          <li class="nav-item">
+            <a class="nav-link fw-semibold d-md-block px-3" href="day.php?day=<?= urlencode((string)$s['day_number']?:'1') ?>">&lt; Back to Day</a></div>
+          </li>
+        </ul>
+      </div>
+    </div>
+  </nav>
+
+<div class="container py-4">
   <div class="hero">
     <div class="avatar">
       <?php if (!empty($photoUrl)): ?>
@@ -112,15 +373,34 @@ body{background:#0b2a59;color:#fff;font-family:system-ui,Segoe UI,Roboto}
 
   <div class="panel">
     <h5 style="color:#fff;margin-bottom:14px">Some Possible and Fit Sample Title</h5>
-
+    <hr>
     <div class="actions d-flex flex-column align-items-center">
-      <button id="btnAttendance" class="btn btn-yellow">Attendance</button>
-      <a class="btn btn-gray" href="#">Speaker Evaluation</a>
-      <a class="btn btn-gray" href="#">Presentation</a>
-      <div class="mt-3 d-flex gap-2">
-        <a class="btn btn-warning" href="quiz.php?speaker_id=<?= (int)($_GET['id'] ?? 0) ?>">Take Quiz</a>
-      </div>
-      <!-- certificate button may be added by admin toggle elsewhere -->
+      <?php if (!$hasAttendance): ?>
+        <button id="btnAttendance" class="btn btn-yellow">Attendance</button>
+      <?php else: ?>
+        <button class="btn btn-ready btn-locked" type="button" disabled>Attendance Completed</button>
+      <?php endif; ?>
+
+      <a id="btnQuiz"
+         class="btn <?= $quizLocked ? 'btn-gray btn-locked' : 'btn-warning' ?>"
+         href="<?= $quizLocked ? '#' : ('quiz.php?speaker_id=' . (int)$speakerId) ?>"
+         <?= $quizLocked ? 'data-locked="1" aria-disabled="true" tabindex="-1" role="button"' : '' ?>>
+         <?= $hasQuiz ? ($hasSubmitted ? 'Quiz Completed' : 'Take Quiz') : 'Quiz Unavailable' ?>
+      </a>
+
+      <a id="btnEvaluation"
+         class="btn <?= $evalLocked ? 'btn-gray btn-locked' : 'btn-ready' ?>"
+         href="<?= $evalLocked ? '#' : e($evaluationUrl) ?>"
+         <?= $evalLocked ? 'data-locked="1" aria-disabled="true" tabindex="-1" role="button"' : '' ?>>
+         <?= $hasEvaluation ? 'Evaluation Completed' : 'Speaker Evaluation' ?>
+      </a>
+
+      <a id="btnPresentation"
+         class="btn <?= $presLocked ? 'btn-gray btn-locked' : 'btn-ready' ?>"
+         href="<?= $presLocked ? '#' : e($presentationUrl) ?>"
+         <?= $presLocked ? 'data-locked="1" aria-disabled="true" tabindex="-1" role="button"' : 'target="_blank" rel="noopener"' ?>>
+         Download Speaker's Presentation
+      </a>
     </div>
   </div>
 
@@ -160,11 +440,14 @@ body{background:#0b2a59;color:#fff;font-family:system-ui,Segoe UI,Roboto}
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
 
 <script>
-document.getElementById('btnAttendance').addEventListener('click', function(){
-  const formWrap = document.getElementById('attendanceForm');
-  formWrap.style.display='block';
-  window.scrollTo({top: formWrap.offsetTop-40, behavior:'smooth'});
-});
+const btnAttend = document.getElementById('btnAttendance');  // NEW guard
+if (btnAttend) {
+  btnAttend.addEventListener('click', function(){
+    const formWrap = document.getElementById('attendanceForm');
+    formWrap.style.display='block';
+    window.scrollTo({top: formWrap.offsetTop-40, behavior:'smooth'});
+  });
+}
 
 // Guard: only bind if cancel button exists
 const cancelBtn = document.getElementById('cancelAttend');
@@ -214,6 +497,32 @@ function showToast(msg) {
     }
     // If all good, allow submit
   });
+})();
+
+// Gate clicks for locked buttons; show toast feedback
+(function(){
+  const evalBtn = document.getElementById('btnEvaluation');
+  const presBtn = document.getElementById('btnPresentation');
+  const quizBtn = document.getElementById('btnQuiz');
+  function handleLockedClick(e, el) {
+    if (!el || !el.hasAttribute('data-locked')) return;
+    e.preventDefault(); e.stopPropagation();
+    const id = el.id || '';
+    let msg = 'This action is currently unavailable.';
+    if (id === 'btnQuiz') msg = 'Please mark attendance first.';
+    if (id === 'btnEvaluation') msg = 'Please complete the quiz first.';
+    if (id === 'btnPresentation') {
+      <?php if (!$hasEvaluation): ?>
+        msg = 'Please complete the evaluation first.';
+      <?php elseif (!$hasPresentation): ?>
+        msg = 'Presentation is not available yet.';
+      <?php endif; ?>
+    }
+    showToast(msg);
+  }
+  if (evalBtn) evalBtn.addEventListener('click', e => handleLockedClick(e, evalBtn));
+  if (presBtn) presBtn.addEventListener('click', e => handleLockedClick(e, presBtn));
+  if (quizBtn) quizBtn.addEventListener('click', e => handleLockedClick(e, quizBtn));
 })();
 </script>
 </body>

@@ -29,23 +29,13 @@ if (!isset($_SESSION['user_role']) || $_SESSION['user_role'] !== 'admin') {
 
 $admin_name = $_SESSION['user_name'] ?? 'Admin';
 
-// fetch current certificate settings (show in admin UI)
-$cert_enabled = '0';
-$cert_auto_date = '';
-$stmtCert = $db->prepare("SELECT setting_value FROM admin_settings WHERE setting_key = 'cert_generation_enabled' LIMIT 1");
-if ($stmtCert) {
-    $stmtCert->execute();
-    $r = $stmtCert->get_result()->fetch_assoc();
-    $stmtCert->close();
-    if (!empty($r['setting_value'])) $cert_enabled = $r['setting_value'];
-}
-$stmtAuto = $db->prepare("SELECT setting_value FROM admin_settings WHERE setting_key = 'cert_auto_enable_date' LIMIT 1");
-if ($stmtAuto) {
-    $stmtAuto->execute();
-    $r2 = $stmtAuto->get_result()->fetch_assoc();
-    $stmtAuto->close();
-    if (!empty($r2['setting_value'])) $cert_auto_date = $r2['setting_value'];
-}
+// REMOVED: inline certificate settings fetch (moved to dedicated page)
+// $cert_enabled = '0';
+// $cert_auto_date = '';
+// $stmtCert = $db->prepare("SELECT setting_value FROM admin_settings WHERE setting_key = 'cert_generation_enabled' LIMIT 1");
+// if ($stmtCert) { /* ...existing code... */ }
+// $stmtAuto = $db->prepare("SELECT setting_value FROM admin_settings WHERE setting_key = 'cert_auto_enable_date' LIMIT 1");
+// if ($stmtAuto) { /* ...existing code... */ }
 
 // helpers
 function dash_count(mysqli $db, string $sql): int {
@@ -69,6 +59,11 @@ $quizRespCount = 0;
 $q2 = $db->query("SELECT COUNT(*) FROM quiz_responses");
 if ($q2) { $quizRespCount = (int)$q2->fetch_row()[0]; }
 
+// NEW: evaluations count (if table exists)
+$evalCount = 0;
+$qe = $db->query("SELECT COUNT(*) FROM speaker_evaluations");
+if ($qe) { $evalCount = (int)$qe->fetch_row()[0]; }
+
 // speakers without quiz
 $speakersNoQuiz = 0;
 $qr = $db->query("SELECT COUNT(*) FROM speakers s LEFT JOIN quizzes q ON q.speaker_id = s.id WHERE q.id IS NULL");
@@ -88,6 +83,93 @@ $rq = $db->query("
 if ($rq) {
     while ($row = $rq->fetch_assoc()) $recentQuizzes[] = $row;
 }
+
+// Attendance monitoring (safe if table doesn't exist)
+function table_exists(mysqli $db, string $name): bool {
+    $name = $db->real_escape_string($name);
+    $res = $db->query("SHOW TABLES LIKE '{$name}'");
+    return $res && $res->num_rows > 0;
+}
+
+// NEW: fetch table columns and pick an identifier column for DISTINCT counts
+function get_table_columns(mysqli $db, string $table): array {
+    $cols = [];
+    if ($res = $db->query("SHOW COLUMNS FROM `{$table}`")) {
+        while ($row = $res->fetch_assoc()) {
+            if (!empty($row['Field'])) $cols[] = $row['Field'];
+        }
+    }
+    return $cols;
+}
+function attendance_count_expr(mysqli $db): string {
+    $cols = get_table_columns($db, 'speaker_attendance');
+    if (empty($cols)) return 'COUNT(*)';
+    // Prefer a user identifier column
+    foreach (['user_id','attendee_id','account_id','participant_id','member_id'] as $c) {
+        if (in_array($c, $cols, true)) return "COUNT(DISTINCT sa.`{$c}`)";
+    }
+    // Fall back to PK id if present
+    if (in_array('id', $cols, true)) return "COUNT(sa.`id`)";
+    return "COUNT(*)";
+}
+
+$hasAttendanceTable = table_exists($db, 'speaker_attendance');
+
+// days for filters
+$days = [];
+if ($r = $db->query("SELECT id, label, day_date FROM function_room_days ORDER BY day_date ASC")) {
+    while ($row = $r->fetch_assoc()) $days[] = $row;
+}
+
+$filterDayId = isset($_GET['day_id']) ? (int)$_GET['day_id'] : 0;
+if ($filterDayId <= 0 && !empty($days)) {
+    $filterDayId = (int)$days[0]['id'];
+}
+
+$attendanceByRoom = [];
+$attendanceByDay = [];
+
+// overall by day
+if ($hasAttendanceTable) {
+    $countExpr = attendance_count_expr($db);
+
+    $sqlDay = "
+        SELECT fd.id AS day_id, fd.label AS day_label, {$countExpr} AS attendees
+        FROM function_room_days fd
+        LEFT JOIN function_rooms fr ON fr.day_id = fd.id
+        LEFT JOIN speakers s ON s.room_id = fr.id
+        LEFT JOIN speaker_attendance sa ON sa.speaker_id = s.id
+        GROUP BY fd.id, fd.label
+        ORDER BY fd.day_date ASC
+    ";
+    if ($res = $db->query($sqlDay)) {
+        while ($row = $res->fetch_assoc()) $attendanceByDay[] = $row;
+    }
+
+    // per room for selected day
+    $sqlRoom = "
+        SELECT fr.id AS room_id, fr.name AS room_name, {$countExpr} AS attendees
+        FROM function_rooms fr
+        LEFT JOIN speakers s ON s.room_id = fr.id
+        LEFT JOIN speaker_attendance sa ON sa.speaker_id = s.id
+        WHERE fr.day_id = ?
+        GROUP BY fr.id, fr.name
+        ORDER BY fr.name ASC
+    ";
+    if ($st = $db->prepare($sqlRoom)) {
+        $st->bind_param('i', $filterDayId);
+        $st->execute();
+        $res = $st->get_result();
+        while ($row = $res->fetch_assoc()) $attendanceByRoom[] = $row;
+        $st->close();
+    }
+}
+// Add totals
+$attendanceTotalAllDays = 0;
+foreach ($attendanceByDay as $d) { $attendanceTotalAllDays += (int)($d['attendees'] ?? 0); }
+
+$attendanceTotalSelectedDay = 0;
+foreach ($attendanceByRoom as $r) { $attendanceTotalSelectedDay += (int)($r['attendees'] ?? 0); }
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -488,8 +570,20 @@ if ($rq) {
                                         <span class="badge bg-white text-primary ms-1"><?= (int)$quizzesCount ?></span>
                                     </a>
                                 </li>
+                                <li class="nav-item">
+                                    <a class="nav-link py-2" href="admin_export_responses.php">
+                                        <i class="bi bi-filetype-csv"></i> Export Responses (per Speaker)
+                                    </a>
+                                </li>
                             </ul>
                         </div>
+                    </li>
+
+                    <!-- Certificates -->
+                    <li class="nav-item mt-2">
+                        <a class="nav-link" href="admin_certificate_settings.php">
+                            <i class="bi bi-award"></i> Certificate Settings
+                        </a>
                     </li>
 
                     <li class="nav-item mt-4">
@@ -578,83 +672,103 @@ if ($rq) {
                         </div>
                     </div>
                 </div>
-            </div>
+            </div> <!-- end Stat Cards row -->
 
-            <!-- Enhanced Content Grid -->
-            <div class="row g-4">
+            <div class="row g-4 mb-4">
                 <div class="col-lg-8">
-                    <!-- Speakers Without Quiz Card -->
-                    <div class="enhanced-card mb-4 fade-in">
-                        <div class="card-header">
+                    <div class="enhanced-card slide-up">
+                        <div class="card-header d-flex align-items-center justify-content-between">
                             <h5 class="mb-0 d-flex align-items-center">
-                                <i class="bi bi-exclamation-triangle-fill text-warning me-2"></i>
-                                Speakers Without a Quiz
+                                <i class="bi bi-person-check-fill text-success me-2"></i>
+                                Attendance by Room
                             </h5>
+                            <form method="get" class="d-flex align-items-center gap-2">
+                                <label class="text-muted small mb-0">Day</label>
+                                <select name="day_id" class="form-select form-select-sm" onchange="this.form.submit()">
+                                    <?php foreach ($days as $d): ?>
+                                        <option value="<?= (int)$d['id'] ?>" <?= $filterDayId == $d['id'] ? 'selected' : '' ?>>
+                                            <?= htmlspecialchars(($d['label'] ?? 'Day') . (isset($d['day_date']) ? ' — '.$d['day_date'] : ''), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') ?>
+                                        </option>
+                                    <?php endforeach; ?>
+                                </select>
+                            </form>
                         </div>
                         <div class="card-body">
-                            <?php if ($speakersNoQuiz <= 0): ?>
-                                <div class="text-center py-4">
-                                    <i class="bi bi-check-circle-fill text-success mb-2" style="font-size: 3rem;"></i>
-                                    <h6 class="text-success">All Set!</h6>
-                                    <span class="badge badge-soft-success">All speakers have quizzes configured</span>
+                            <?php if (!$hasAttendanceTable): ?>
+                                <div class="alert alert-warning mb-0">
+                                    Attendance table not found. Expected table: speaker_attendance joined by speaker_id.
                                 </div>
                             <?php else: ?>
-                                <div class="d-flex align-items-center justify-content-between mb-3">
-                                    <span class="badge badge-soft-warning fs-6"><?= (int)$speakersNoQuiz ?> speakers pending</span>
-                                    <small class="text-muted">Click "Create Quiz" to add evaluations</small>
-                                </div>
-                                <div class="table-responsive">
-                                    <table class="table table-hover align-middle">
-                                        <thead>
-                                            <tr>
-                                                <th><i class="bi bi-hash me-1"></i>ID</th>
-                                                <th><i class="bi bi-person me-1"></i>Speaker</th>
-                                                <th><i class="bi bi-door-open me-1"></i>Room</th>
-                                                <th><i class="bi bi-calendar me-1"></i>Day</th>
-                                                <th width="120"></th>
-                                            </tr>
-                                        </thead>
-                                        <tbody>
-                                        <?php
-                                        $list = $db->query("
-                                            SELECT s.id, s.name,
-                                                   fr.name AS room_name,
-                                                   fd.label AS day_label
-                                            FROM speakers s
-                                            LEFT JOIN quizzes q ON q.speaker_id = s.id
-                                            LEFT JOIN function_rooms fr ON fr.id = s.room_id
-                                            LEFT JOIN function_room_days fd ON fd.id = fr.day_id
-                                            WHERE q.id IS NULL
-                                            ORDER BY fd.day_date ASC, fr.id ASC, s.name ASC
-                                            LIMIT 15
-                                        ");
-                                        if ($list) {
-                                            while ($row = $list->fetch_assoc()):
-                                        ?>
-                                            <tr>
-                                                <td><span class="badge bg-light text-dark"><?= (int)$row['id'] ?></span></td>
-                                                <td class="fw-semibold"><?= htmlspecialchars($row['name'] ?? '', ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') ?></td>
-                                                <td><?= htmlspecialchars($row['room_name'] ?? '-', ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') ?></td>
-                                                <td><?= htmlspecialchars($row['day_label'] ?? '-', ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') ?></td>
-                                                <td>
-                                                    <a href="admin_quiz_manage.php?speaker_id=<?= (int)$row['id'] ?>" class="btn btn-sm btn-primary">
-                                                        <i class="bi bi-plus-circle me-1"></i> Create
-                                                    </a>
-                                                </td>
-                                            </tr>
-                                        <?php
-                                            endwhile;
-                                        } else {
-                                            echo '<tr><td colspan="5" class="text-center text-muted py-4">No data available</td></tr>';
-                                        }
-                                        ?>
-                                        </tbody>
-                                    </table>
-                                </div>
+                                <?php if (empty($attendanceByRoom)): ?>
+                                    <div class="text-muted">No attendance records for the selected day.</div>
+                                <?php else: ?>
+                                    <div class="table-responsive">
+                                        <table class="table table-sm align-middle">
+                                            <thead>
+                                                <tr>
+                                                    <th>Function Room</th>
+                                                    <th class="text-end">Attendees</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                <?php foreach ($attendanceByRoom as $r): ?>
+                                                    <tr>
+                                                        <td><?= htmlspecialchars($r['room_name'] ?? '-', ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') ?></td>
+                                                        <td class="text-end">
+                                                            <span class="badge badge-soft-success"><?= (int)($r['attendees'] ?? 0) ?></span>
+                                                        </td>
+                                                    </tr>
+                                                <?php endforeach; ?>
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                    <?php if ($hasAttendanceTable): ?>
+                                      <div class="d-flex justify-content-end mt-2">
+                                        <span class="badge badge-soft">Day Total: <?= (int)$attendanceTotalSelectedDay ?></span>
+                                      </div>
+                                    <?php endif; ?>
+                                <?php endif; ?>
                             <?php endif; ?>
                         </div>
                     </div>
+                </div>
+                <div class="col-lg-4">
+                    <div class="enhanced-card slide-up">
+                        <div class="card-header">
+                            <div class="d-flex align-items-center justify-content-between">
+                              <h5 class="mb-0 d-flex align-items-center">
+                                <i class="bi bi-calendar2-check text-primary me-2"></i>
+                                Attendance by Day (Overall)
+                              </h5>
+                              <?php if ($hasAttendanceTable): ?>
+                                <span class="badge badge-soft">Total: <?= (int)$attendanceTotalAllDays ?></span>
+                              <?php endif; ?>
+                            </div>
+                        </div>
+                        <div class="card-body">
+                            <?php if (!$hasAttendanceTable): ?>
+                                <div class="text-muted">Waiting for attendance setup.</div>
+                            <?php else: ?>
+                                <?php if (empty($attendanceByDay)): ?>
+                                    <div class="text-muted">No attendance yet.</div>
+                                <?php else: ?>
+                                    <div class="list-group list-group-flush">
+                                        <?php foreach ($attendanceByDay as $d): ?>
+                                            <div class="list-group-item d-flex justify-content-between align-items-center">
+                                                <div class="fw-semibold"><?= htmlspecialchars($d['day_label'] ?? 'Day', ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') ?></div>
+                                                <span class="badge badge-soft"><?= (int)($d['attendees'] ?? 0) ?> attendee<?= ((int)($d['attendees'] ?? 0) === 1) ? '' : 's' ?></span>
+                                            </div>
+                                        <?php endforeach; ?>
+                                    </div>
+                                <?php endif; ?>
+                            <?php endif; ?>
+                        </div>
+                    </div>
+                </div>
+            </div>
 
+            <div class="row g-4">
+                <div class="col-lg-8">
                     <!-- Recent Quizzes Card -->
                     <div class="enhanced-card slide-up">
                         <div class="card-header">
@@ -695,72 +809,7 @@ if ($rq) {
                     </div>
                 </div>
 
-                <!-- Enhanced Right Column -->
                 <div class="col-lg-4">
-                    <!-- Certificate Controls -->
-                    <div class="enhanced-card mb-4 fade-in">
-                        <div class="card-header">
-                            <div class="d-flex align-items-center justify-content-between">
-                                <h5 class="mb-0">
-                                    <i class="bi bi-award text-warning me-2"></i>
-                                    Certificate Control
-                                </h5>
-                                <?php if ($cert_enabled === '1'): ?>
-                                    <span class="badge badge-soft-success">
-                                        <i class="bi bi-check2-circle me-1"></i>Active
-                                    </span>
-                                <?php else: ?>
-                                    <span class="badge badge-soft-danger">
-                                        <i class="bi bi-x-circle me-1"></i>Inactive
-                                    </span>
-                                <?php endif; ?>
-                            </div>
-                        </div>
-                        <div class="card-body">
-                            <p class="text-muted small mb-4">
-                                <i class="bi bi-info-circle me-1"></i>
-                                Control certificate generation for attendees. Set auto-enable date for automatic activation.
-                            </p>
-
-                            <form method="post" action="../api/toggle_certificate.php">
-                                <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($_SESSION['csrf_token'] ?? '', ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') ?>">
-                                
-                                <div class="mb-3">
-                                    <div class="form-check form-switch">
-                                        <input class="form-check-input" type="checkbox" id="certEnabled" name="cert_enabled" value="1" <?= ($cert_enabled === '1') ? 'checked' : '' ?>>
-                                        <label class="form-check-label fw-semibold" for="certEnabled">
-                                            Enable Certificate Generation
-                                        </label>
-                                    </div>
-                                </div>
-
-                                <div class="mb-3">
-                                    <label class="form-label fw-semibold">
-                                        <i class="bi bi-calendar-event me-1"></i>
-                                        Auto-enable Date
-                                    </label>
-                                    <input type="date" class="form-control" name="cert_auto_date" value="<?= htmlspecialchars($cert_auto_date, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') ?>" />
-                                    <small class="text-muted">Certificates will be automatically enabled from this date</small>
-                                </div>
-
-                                <button class="btn btn-primary w-100">
-                                    <i class="bi bi-save me-1"></i> Save Settings
-                                </button>
-                            </form>
-
-                            <div class="mt-3 p-3 bg-light rounded-3">
-                                <div class="d-flex align-items-center">
-                                    <i class="bi bi-info-circle text-primary me-2"></i>
-                                    <div class="small">
-                                        <strong>Status:</strong> <?= ($cert_enabled === '1') ? 'Enabled' : 'Disabled' ?>
-                                        <?= $cert_auto_date ? '<br><strong>Auto from:</strong> ' . htmlspecialchars($cert_auto_date, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') : '' ?>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- Quick Actions -->
                     <div class="enhanced-card slide-up">
                         <div class="card-header">
                             <h5 class="mb-0">
@@ -781,6 +830,10 @@ if ($rq) {
                                 <a href="admin_manage_function_rooms.php" class="btn btn-outline-secondary">
                                     <i class="bi bi-door-open me-2"></i> 
                                     Manage Function Rooms
+                                </a>
+                                <a href="admin_certificate_settings.php" class="btn btn-outline-success">
+                                    <i class="bi bi-award me-2"></i>
+                                    Certificate Settings
                                 </a>
                             </div>
                             

@@ -511,7 +511,7 @@ $userName = $_SESSION['user_name'] ?? 'Account';
       <div class="container">
         <div class="row align-items-center">
           <div class="col-12 text-center">
-            <h1 class="display-4 fw-bold mb-4 text-gradient">About Our Organization</h1>
+            <h1 class="display-4 fw-bold py-3 mb-4 text-gradient">About Our Organization</h1>
             <p class="lead mb-0 mx-auto text-black" style="max-width: 800px;">
               Discover the organizational structure and leadership behind the 73rd PSME National Convention. 
               Our comprehensive charts showcase the dedicated professionals advancing mechanical engineering excellence in the Philippines.
@@ -621,7 +621,7 @@ $userName = $_SESSION['user_name'] ?? 'Account';
           </p>
           <p class="mb-0 d-flex align-items-start">
             <i class="fas fa-envelope me-3 mt-1 flex-shrink-0" style="color: #000e6c"></i>
-            <span>membership@psmeinc.org.ph<br class="d-sm-none"> | <br class="d-sm-none">icto@psmeinc.org.ph</span>
+            <span>membership@psmeinc.org.ph<br>icto@psmeinc.org.ph</span>
           </p>
         </div>
       </div>

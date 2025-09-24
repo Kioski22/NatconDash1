@@ -114,6 +114,7 @@ $sql = "
       fr.id AS room_id,
       fr.name AS room_name,
       fr.label AS room_label,
+      TRIM(fr.room_number) AS room_number,  -- CHANGED: trim for safety
       s.id AS speaker_id,
       s.name AS speaker_name,
       s.title AS speaker_title,
@@ -122,7 +123,7 @@ $sql = "
     FROM function_rooms fr
     LEFT JOIN speakers s ON s.room_id = fr.id
     WHERE fr.day_number = ?
-    ORDER BY fr.id ASC, COALESCE(s.start_time, '00:00:00') ASC, s.id ASC
+    ORDER BY (fr.room_number + 0) ASC, fr.room_number ASC, COALESCE(s.start_time, '00:00:00') ASC, s.id ASC  -- CHANGED: sort by room_number
 ";
 
 $stmt = $db->prepare($sql);
@@ -139,10 +140,12 @@ $rooms = [];
 while ($row = $res->fetch_assoc()) {
     $rid = (int)$row['room_id'];
     if (!isset($rooms[$rid])) {
+        $roomNumber = isset($row['room_number']) ? trim((string)$row['room_number']) : '';
         $rooms[$rid] = [
             'id' => $rid,
-            'name' => $row['room_name'] ?: ('Function Room ' . $rid),
+            'name' => $row['room_name'] ?: 'Function Room',   // CHANGED: no id fallback
             'label' => $row['room_label'] ?: '',
+            'room_number' => $roomNumber,                     // CHANGED: no id fallback
             'speakers' => []
         ];
     }
@@ -243,13 +246,21 @@ if (!function_exists('fmt_time')) {
       box-shadow: 0 8px 25px rgba(245, 158, 11, 0.4);
     }
         
-    body { background: var(--primary-color); color:#fff;}
+    body { 
+        background: var(--primary-color); 
+        color:#fff;
+        padding-top: 70px;
+    }
 
     .text-gradient {
       background: linear-gradient(135deg, var(--primary-color), var(--secondary-color));
       -webkit-background-clip: text;
       -webkit-text-fill-color: transparent;
       background-clip: text;
+    }
+
+    #main {
+      position: relative;
     }
 
     .page-title { background:#fff; color:#0b2a59; text-align:center; padding:12px; font-weight:700; margin-bottom:18px; border-radius:4px; }
@@ -296,10 +307,10 @@ if (!function_exists('fmt_time')) {
   </nav>
 
   <div class="container container-wrap mt-5" id="main">
-        <div class="display-6 fw-bold m-5 text-white text-center">DAY <?= htmlspecialchars((string)$dayNum, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') ?> — SPEAKERS & SCHEDULE</div>
+        <div class="display-6 fw-bold m-3 text-white text-center">DAY <?= htmlspecialchars((string)$dayNum, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') ?> — SPEAKERS & SCHEDULE</div>
 
-        <div class="row g-4">
-            <div class="col-lg-12">
+        <div class="row g-4 justify-content-center">
+            <div class="col-lg-10">
                 <?php if (empty($rooms)): ?>
                     <div class="empty-msg text-white">
                         No function rooms or speakers found for Day <?= htmlspecialchars((string)$dayNum, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') ?>.
@@ -315,8 +326,11 @@ if (!function_exists('fmt_time')) {
                                         <div class="text-white small"><?= htmlspecialchars((string)$room['label'], ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') ?></div>
                                     <?php endif; ?>
                                 </div>
-                                <div class="text-white small">Room #<?= (int)$room['id'] ?></div>
+                                <div class="text-white small">
+                                  Room # <?= htmlspecialchars((string)($room['room_number'] ?? ''), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') ?>
+                                </div> <!-- CHANGED -->
                             </div>
+                            <hr>
                             <div class="mt-2">
                                 <?php if (!empty($room['speakers'])): ?>
                                     <?php foreach ($room['speakers'] as $sp): ?>

@@ -53,19 +53,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if ($action === 'add') {
             $name = trim($_POST['name'] ?? '');
             $label = trim($_POST['label'] ?? '');
+            $room_number = trim($_POST['room_number'] ?? '');   // NEW
             $day_number = is_numeric($_POST['day_number'] ?? null) ? (int)$_POST['day_number'] : null;
             $day_date = trim($_POST['day_date'] ?? '') ?: null;
             $description = trim($_POST['description'] ?? '');
             $day_id = isset($_POST['day_id']) && is_numeric($_POST['day_id']) ? (int)$_POST['day_id'] : null;
 
             if ($name === '') $errors[] = 'Name is required.';
+            if ($room_number === '') $errors[] = 'Room number is required.'; // NEW
             if ($day_number === null) $errors[] = 'Day number is required.';
             if (empty($errors)) {
-                $stmt = $db->prepare("INSERT INTO function_rooms (name, label, day_number, day_date, description, day_id) VALUES (?, ?, ?, ?, ?, ?)");
+                $stmt = $db->prepare("INSERT INTO function_rooms (name, label, room_number, day_number, day_date, description, day_id) VALUES (?, ?, ?, ?, ?, ?, ?)"); // NEW
                 if ($stmt) {
-                    // allow NULL for day_id when not chosen
                     if ($day_id !== null && $day_id <= 0) $day_id = null;
-                    $stmt->bind_param('ssissi', $name, $label, $day_number, $day_date, $description, $day_id);
+                    $stmt->bind_param('sssissi', $name, $label, $room_number, $day_number, $day_date, $description, $day_id); // NEW
                     if ($stmt->execute()) {
                         $success = 'Function room added.';
                     } else {
@@ -80,6 +81,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $id = isset($_POST['id']) ? (int)$_POST['id'] : 0;
             $name = trim($_POST['name'] ?? '');
             $label = trim($_POST['label'] ?? '');
+            $room_number = trim($_POST['room_number'] ?? '');   // NEW
             $day_number = is_numeric($_POST['day_number'] ?? null) ? (int)$_POST['day_number'] : null;
             $day_date = trim($_POST['day_date'] ?? '') ?: null;
             $description = trim($_POST['description'] ?? '');
@@ -87,13 +89,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
             if ($id <= 0) $errors[] = 'Invalid room id.';
             if ($name === '') $errors[] = 'Name is required.';
+            if ($room_number === '') $errors[] = 'Room number is required.'; // NEW
             if ($day_number === null) $errors[] = 'Day number is required.';
 
             if (empty($errors)) {
-                $stmt = $db->prepare("UPDATE function_rooms SET name = ?, label = ?, day_number = ?, day_date = ?, description = ?, day_id = ? WHERE id = ? LIMIT 1");
+                $stmt = $db->prepare("UPDATE function_rooms SET name = ?, label = ?, room_number = ?, day_number = ?, day_date = ?, description = ?, day_id = ? WHERE id = ? LIMIT 1"); // NEW
                 if ($stmt) {
                     if ($day_id !== null && $day_id <= 0) $day_id = null;
-                    $stmt->bind_param('ssissii', $name, $label, $day_number, $day_date, $description, $day_id, $id);
+                    $stmt->bind_param('sssissii', $name, $label, $room_number, $day_number, $day_date, $description, $day_id, $id); // NEW
                     if ($stmt->execute()) {
                         $success = 'Function room updated.';
                     } else {
@@ -143,7 +146,7 @@ if ($messages) {
 
 // fetch rooms list
 $rooms = [];
-$res = $db->query("SELECT id, name, label, day_number, day_date, description, day_id FROM function_rooms ORDER BY day_number ASC, id ASC");
+$res = $db->query("SELECT id, name, label, room_number, day_number, day_date, description, day_id FROM function_rooms ORDER BY day_number ASC, id ASC"); // NEW
 if ($res) {
     while ($r = $res->fetch_assoc()) $rooms[] = $r;
 }
@@ -152,7 +155,7 @@ if ($res) {
 $editRoom = null;
 if (isset($_GET['edit']) && is_numeric($_GET['edit'])) {
     $eid = (int)$_GET['edit'];
-    $stmt = $db->prepare("SELECT id, name, label, day_number, day_date, description, day_id FROM function_rooms WHERE id = ? LIMIT 1");
+    $stmt = $db->prepare("SELECT id, name, label, room_number, day_number, day_date, description, day_id FROM function_rooms WHERE id = ? LIMIT 1"); // NEW
     if ($stmt) {
         $stmt->bind_param('i', $eid);
         $stmt->execute();
@@ -200,6 +203,7 @@ if (isset($_GET['edit']) && is_numeric($_GET['edit'])) {
                   <th>#</th>
                   <th>Name</th>
                   <th>Label</th>
+                  <th>Room No.</th>  <!-- NEW -->
                   <th>Day</th>
                   <th>Date</th>
                   <th>Linked Day</th>
@@ -212,6 +216,7 @@ if (isset($_GET['edit']) && is_numeric($_GET['edit'])) {
                     <td><?= (int)$r['id'] ?></td>
                     <td><?= e($r['name']) ?></td>
                     <td><?= e($r['label']) ?></td>
+                    <td><?= e($r['room_number']) ?></td> <!-- NEW -->
                     <td><?= e($r['day_number']) ?></td>
                     <td><?= e($r['day_date']) ?></td>
                     <td><?= $r['day_id'] ? ('#'.(int)$r['day_id']) : '-' ?></td>
@@ -267,6 +272,10 @@ if (isset($_GET['edit']) && is_numeric($_GET['edit'])) {
               </div>
 
               <div class="mb-2">
+                <label class="form-label">Room Number</label>
+                <input name="room_number" class="form-control" required value="<?= e($editRoom['room_number']) ?>"> <!-- NEW -->
+              </div>
+              <div class="mb-2">
                 <label class="form-label">Day Number</label>
                 <input name="day_number" type="number" min="1" class="form-control" required value="<?= e($editRoom['day_number']) ?>">
               </div>
@@ -312,6 +321,10 @@ if (isset($_GET['edit']) && is_numeric($_GET['edit'])) {
                 <small class="text-muted">This links the room to a day; used when filtering rooms by day.</small>
               </div>
 
+              <div class="mb-2">
+                <label class="form-label">Room Number</label>
+                <input name="room_number" class="form-control" required value=""> <!-- NEW -->
+              </div>
               <div class="mb-2">
                 <label class="form-label">Day Number</label>
                 <input name="day_number" type="number" min="1" class="form-control" required value="">
