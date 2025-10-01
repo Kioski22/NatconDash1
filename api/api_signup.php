@@ -70,15 +70,16 @@ try {
     $uid = (int)$ins->insert_id;
     $ins->close();
 
-    // auto-login the new user
-    $_SESSION['user_id'] = $uid;
-    $_SESSION['user_email'] = $email;
-    $_SESSION['user_name'] = $name;
-    $_SESSION['user_role'] = 'delegate';
+    // Do NOT auto-login. Require explicit login after signup.
+    // Provide a session-based toast for the login page.
+    $_SESSION['toast'] = [
+        'msg' => 'Account created successfully. Please log in.',
+        'type' => 'success'
+    ];
 
     $response['status'] = 'success';
-    $response['message'] = 'Signup successful.';
-    $response['redirect'] = '../dashboard/dashboard.php';
+    $response['message'] = 'Signup successful. Login required.';
+    $response['redirect'] = '../Credentials/login.php';
 } catch (Exception $e) {
     $response['message'] = $e->getMessage();
 }

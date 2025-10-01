@@ -1,0 +1,26 @@
+version: 0.2
+
+phases:
+  install:
+    runtime-versions:
+      php: 8.2
+    commands:
+      - echo Installing Composer dependencies
+      - curl -sS https://getcomposer.org/installer | php
+      - php composer.phar install --no-interaction --no-progress --prefer-dist
+  build:
+    commands:
+      - echo Running tests
+      - vendor\bin\phpunit || vendor/bin/phpunit
+  post_build:
+    commands:
+      - echo Build completed on `date`
+artifacts:
+  files:
+    - '**/*'
+  exclude-files:
+    - 'vendor/**/.gitignore'
+    - '.env'
+cache:
+  paths:
+    - 'vendor/**/*'

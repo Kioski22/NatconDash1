@@ -1,2 +1,30 @@
-{ "require": { "phpmailer/phpmailer": "^6.10", "vlucas/phpdotenv": "^5.6",
-        "dompdf/dompdf": "^3.1" } }
+{
+        "name": "kioski22/natcondash1",
+        "description": "Natcon Dashboard application (certificate & evaluation management)",
+        "type": "project",
+        "license": "proprietary",
+        "require": {
+                "php": ">=8.1",
+                "phpmailer/phpmailer": "^6.10",
+                "vlucas/phpdotenv": "^5.6",
+                "dompdf/dompdf": "^3.1"
+        },
+        "require-dev": {
+                "phpunit/phpunit": "^10.5"
+        },
+        "autoload": {
+                "psr-4": {
+                        "App\\": "app/"
+                }
+        },
+        "scripts": {
+                "post-install-cmd": [
+                        "@php -r \"if (!file_exists('.env') && file_exists('.env.example')) copy('.env.example', '.env');\""
+                ],
+                "test": "phpunit --colors=always"
+        },
+        "config": {
+                "sort-packages": true,
+                "optimize-autoloader": true
+        }
+}

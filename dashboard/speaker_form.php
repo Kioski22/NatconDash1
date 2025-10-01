@@ -213,9 +213,9 @@ if (!$hasEvaluation && !empty($_SESSION['evaluated_speakers'][$speakerId])) {
 }
 
 // NEW: Locks (per speaker, strictly sequential)
-$quizLocked = (!$hasAttendance) || $hasSubmitted || !$hasQuiz;
-$evalLocked = (!$hasSubmitted) || $hasEvaluation;    // must finish quiz; never unlock early
-$presLocked = (!$hasEvaluation) || (!$hasPresentation);
+$quizLocked = $hasSubmitted || !$hasQuiz;                 // Quiz first; unlocked if not yet submitted
+$evalLocked = (!$hasSubmitted) || $hasEvaluation;         // Eval unlocks only after quiz is submitted
+$presLocked = (!$hasEvaluation) || (!$hasPresentation);   // Presentation unlocks only after evaluation and file exists
 
 function fmt_time($t){ if (!$t) return ''; $dt=@date_create($t); return $dt?date_format($dt,'g:i A'):htmlspecialchars((string)$t,ENT_QUOTES|ENT_SUBSTITUTE,'UTF-8'); }
 ?>
@@ -375,10 +375,13 @@ function fmt_time($t){ if (!$t) return ''; $dt=@date_create($t); return $dt?date
     <h5 style="color:#fff;margin-bottom:14px">Some Possible and Fit Sample Title</h5>
     <hr>
     <div class="actions d-flex flex-column align-items-center">
-      <?php if (!$hasAttendance): ?>
-        <button id="btnAttendance" class="btn btn-yellow">Attendance</button>
-      <?php else: ?>
-        <button class="btn btn-ready btn-locked" type="button" disabled>Attendance Completed</button>
+      <?php if (false): ?> 
+        <!-- Attendance moved out of this page; kept for reference -->
+        <?php if (!$hasAttendance): ?>
+          <button id="btnAttendance" class="btn btn-yellow">Attendance</button>
+        <?php else: ?>
+          <button class="btn btn-ready btn-locked" type="button" disabled>Attendance Completed</button>
+        <?php endif; ?>
       <?php endif; ?>
 
       <a id="btnQuiz"
@@ -404,6 +407,7 @@ function fmt_time($t){ if (!$t) return ''; $dt=@date_create($t); return $dt?date
     </div>
   </div>
 
+  <?php if (false): ?>
   <div id="attendanceForm" class="att-card" style="display:none">
     <div class="card" style="border-radius:12px;">
       <div class="card-body">
@@ -423,7 +427,7 @@ function fmt_time($t){ if (!$t) return ''; $dt=@date_create($t); return $dt?date
       </div>
     </div>
   </div>
-
+  <?php endif; ?>
 </div>
 
 <!-- Toast container -->
@@ -509,7 +513,15 @@ function showToast(msg) {
     e.preventDefault(); e.stopPropagation();
     const id = el.id || '';
     let msg = 'This action is currently unavailable.';
-    if (id === 'btnQuiz') msg = 'Please mark attendance first.';
+    if (id === 'btnQuiz') {
+      <?php if ($hasSubmitted): ?>
+        msg = 'You already completed the quiz.';
+      <?php elseif (!$hasQuiz): ?>
+        msg = 'Quiz is unavailable.';
+      <?php else: ?>
+        msg = 'Quiz is locked.';
+      <?php endif; ?>
+    }
     if (id === 'btnEvaluation') msg = 'Please complete the quiz first.';
     if (id === 'btnPresentation') {
       <?php if (!$hasEvaluation): ?>

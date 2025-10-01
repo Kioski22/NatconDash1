@@ -2,6 +2,55 @@
 session_start();
 require_once __DIR__ . '/../db.php';
 
+// Ensure $db is available BEFORE attendance logic
+if (isset($conn) && $conn instanceof mysqli) {
+    $db = $conn;
+} elseif (isset($mysqli) && $mysqli instanceof mysqli) {
+    $db = $mysqli;
+} else {
+    $db = null;
+}
+
+$userId = isset($_SESSION['user_id']) ? (int)$_SESSION['user_id'] : 0;
+$userName = trim((string)($_SESSION['user_name'] ?? $_SESSION['name'] ?? ''));
+
+if (!function_exists('e')) { function e($s){ return htmlspecialchars((string)$s, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8'); } }
+
+function resolve_day_number_day(?mysqli $db, int $dayId): ?int {
+    if (!$db) return null;
+    $dayDate = null;
+    if ($st = $db->prepare("SELECT day_date FROM function_room_days WHERE id=? LIMIT 1")) {
+        $st->bind_param('i',$dayId); $st->execute(); $st->bind_result($dayDate); $st->fetch(); $st->close();
+    }
+    if (!$dayDate) return null;
+    $num = null;
+    if ($st2 = $db->prepare("SELECT COUNT(*) FROM function_room_days WHERE day_date <= ?")) {
+        $st2->bind_param('s',$dayDate); $st2->execute(); $st2->bind_result($num); $st2->fetch(); $st2->close();
+    }
+    return $num ? max(1,(int)$num) : null;
+}
+
+if ($db instanceof mysqli && $_SERVER['REQUEST_METHOD']==='POST' && ($_POST['action'] ?? '')==='mark_day_attendance') {
+    if (!$userId) { $_SESSION['flash']=['type'=>'danger','msg'=>'Please login to mark attendance.']; header('Location: day.php'); exit; }
+    $dayIdPost = (int)($_POST['day_id'] ?? 0);
+    $fullName = trim((string)($_POST['full_name'] ?? ''));
+    $prcNo = trim((string)($_POST['prc_license_number'] ?? ''));
+    $prcRegDate = trim((string)($_POST['prc_registration_date'] ?? ''));
+    $prcExpiry = trim((string)($_POST['prc_license_expiry'] ?? ''));
+    $prcType = trim((string)($_POST['prc_license_type'] ?? ''));
+    $contactNo = trim((string)($_POST['contact_number'] ?? ''));
+    if ($dayIdPost<=0 || $fullName===''){ $_SESSION['flash']=['type'=>'danger','msg'=>'Full name is required.']; header('Location: day.php'); exit; }
+    $resolvedDayNumber = resolve_day_number_day($db,$dayIdPost);
+    if (!$resolvedDayNumber){ $_SESSION['flash']=['type'=>'danger','msg'=>'Invalid day specified.']; header('Location: day.php'); exit; }
+    $exists=false; if ($st=$db->prepare("SELECT 1 FROM attendance WHERE user_id=? AND day_number=? LIMIT 1")){ $st->bind_param('ii',$userId,$resolvedDayNumber); $st->execute(); $st->bind_result($d); if($st->fetch()) $exists=true; $st->close(); }
+    if ($exists){ $_SESSION['flash']=['type'=>'warning','msg'=>'Attendance already recorded for this day.']; header('Location: day.php?day_id='.$dayIdPost); exit; }
+    $sql="INSERT INTO attendance (user_id, day_number, full_name, prc_license_number, prc_registration_date, prc_license_expiry, prc_license_type, contact_number) VALUES (?,?,?,?,NULLIF(?,''),NULLIF(?,''),NULLIF(?,''),NULLIF(?,''))";
+    if($ins=$db->prepare($sql)) { $ins->bind_param('iissssss',$userId,$resolvedDayNumber,$fullName,$prcNo,$prcRegDate,$prcExpiry,$prcType,$contactNo); if($ins->execute()){ $_SESSION['flash']=['type'=>'success','msg'=>'Attendance recorded for this day.']; } else { $_SESSION['flash']=['type'=>'danger','msg'=>'Failed to save attendance.']; } $ins->close(); } else { $_SESSION['flash']=['type'=>'danger','msg'=>'Database error.']; }
+    header('Location: day.php?day_id='.$dayIdPost); exit;
+}
+
+if (!($db instanceof mysqli)) { http_response_code(500); echo 'Database connection not available.'; exit; }
+
 // normalize DB connection variable
 if (isset($conn) && $conn instanceof mysqli) {
     $db = $conn;
@@ -106,6 +155,23 @@ if ($dayNum === null) {
 // final fallback default to 1
 if ($dayNum === null || $dayNum <= 0) {
     $dayNum = 1;
+}
+
+// Determine current day_id (first matching by ordering if not provided)
+$currentDayId = isset($dayId) ? (int)$dayId : 0;
+if ($currentDayId <= 0) {
+    if ($st = $db->prepare("SELECT id FROM function_room_days ORDER BY day_date ASC LIMIT 1 OFFSET ?")) {
+        $off = max(0,$dayNum-1); $st->bind_param('i',$off); $st->execute(); $r=$st->get_result()->fetch_assoc(); $st->close();
+        if (!empty($r['id'])) $currentDayId = (int)$r['id'];
+    }
+}
+
+// Has user already marked attendance for this resolved day number?
+$alreadyAttended = false;
+if ($userId) {
+    if ($st = $db->prepare("SELECT 1 FROM attendance WHERE user_id=? AND day_number=? LIMIT 1")) {
+        $st->bind_param('ii',$userId,$dayNum); $st->execute(); $st->bind_result($d); if ($st->fetch()) $alreadyAttended = true; $st->close();
+    }
 }
 
 // fetch function rooms for the resolved day number and their speakers
@@ -307,7 +373,22 @@ if (!function_exists('fmt_time')) {
   </nav>
 
   <div class="container container-wrap mt-5" id="main">
-        <div class="display-6 fw-bold m-3 text-white text-center">DAY <?= htmlspecialchars((string)$dayNum, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') ?> — SPEAKERS & SCHEDULE</div>
+                <div class="display-6 fw-bold m-3 text-white text-center">DAY <?= htmlspecialchars((string)$dayNum, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') ?> — SPEAKERS & SCHEDULE</div>
+
+                <?php if (!empty($_SESSION['flash'])): $f=$_SESSION['flash']; unset($_SESSION['flash']); ?>
+                        <div class="alert alert-<?= e($f['type']??'info') ?> text-center"><?= e($f['msg']??'') ?></div>
+                <?php endif; ?>
+
+                <!-- Inline Attendance Action (moved from card) -->
+                <div class="text-center mb-4">
+                    <?php if (!$userId): ?>
+                        <a href="../Credentials/login.php?redirect=<?= urlencode('dashboard/day.php?day_id='.$currentDayId) ?>" class="btn btn-warning btn-sm">Login to Mark Attendance</a>
+                    <?php elseif ($alreadyAttended): ?>
+                        <button class="btn btn-success btn-sm" disabled>Attendance Recorded</button>
+                    <?php else: ?>
+                        <button class="btn btn-warning btn-sm" data-bs-toggle="modal" data-bs-target="#dayAttendModal" data-day-id="<?= (int)$currentDayId ?>" data-day-label="Day <?= (int)$dayNum ?>">Mark Attendance</button>
+                    <?php endif; ?>
+                </div>
 
         <div class="row g-4 justify-content-center">
             <div class="col-lg-10">
@@ -390,7 +471,59 @@ if (!function_exists('fmt_time')) {
                 <?php endif; ?>
             </div>
         </div>
+
     </div>
+
+        <!-- Attendance Modal (copied/adapted) -->
+        <div class="modal fade" id="dayAttendModal" tabindex="-1" aria-labelledby="dayAttendLabel" aria-hidden="true">
+            <div class="modal-dialog modal-dialog-centered">
+                <div class="modal-content" style="color:#111;">
+                    <div class="modal-header">
+                        <h5 class="modal-title" id="dayAttendLabel">Mark Attendance</h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                    </div>
+                    <form method="post" action="day.php" novalidate>
+                        <input type="hidden" name="action" value="mark_day_attendance">
+                        <input type="hidden" name="day_id" id="att_day_id" value="<?= (int)$currentDayId ?>">
+                        <div class="modal-body">
+                            <div class="mb-2">
+                                <label class="form-label">Full Name</label>
+                                <input type="text" name="full_name" class="form-control" required value="<?= e($userName) ?>">
+                            </div>
+                            <div class="row g-2">
+                                <div class="col-md-6">
+                                    <label class="form-label">PRC License No.</label>
+                                    <input type="text" name="prc_license_number" class="form-control">
+                                </div>
+                                <div class="col-md-6">
+                                    <label class="form-label">PRC License Type</label>
+                                    <input type="text" name="prc_license_type" class="form-control">
+                                </div>
+                            </div>
+                            <div class="row g-2 mt-1">
+                                <div class="col-md-6">
+                                    <label class="form-label">PRC Registration Date</label>
+                                    <input type="date" name="prc_registration_date" class="form-control">
+                                </div>
+                                <div class="col-md-6">
+                                    <label class="form-label">PRC License Expiry</label>
+                                    <input type="date" name="prc_license_expiry" class="form-control">
+                                </div>
+                            </div>
+                            <div class="mt-2">
+                                <label class="form-label">Contact Number</label>
+                                <input type="text" name="contact_number" class="form-control">
+                            </div>
+                            <div class="small text-muted mt-2">You can only mark attendance once per day.</div>
+                        </div>
+                        <div class="modal-footer">
+                            <button class="btn btn-secondary" data-bs-dismiss="modal" type="button">Cancel</button>
+                            <button class="btn btn-primary" type="submit">Submit Attendance</button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
 
     <script>
     // delegate click to speaker items to go to speaker detail (if id exists)
@@ -400,6 +533,20 @@ if (!function_exists('fmt_time')) {
         const spId = el.getAttribute('data-speaker-id');
         if (spId) location.href = 'speaker.php?id=' + encodeURIComponent(spId);
     });
+
+        // Populate modal with dynamic day id/label if different button triggers
+        document.addEventListener('show.bs.modal', function(ev){
+            const modal = ev.target;
+            if (modal.id !== 'dayAttendModal') return;
+            const btn = ev.relatedTarget; if (!btn) return;
+            const dayId = btn.getAttribute('data-day-id');
+            const dayLabel = btn.getAttribute('data-day-label') || 'Selected Day';
+            const input = document.getElementById('att_day_id');
+            const title = document.getElementById('dayAttendLabel');
+            if (input && dayId) input.value = dayId;
+            if (title) title.textContent = 'Mark Attendance — ' + dayLabel;
+        });
     </script>
+        <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
 </body>
 </html>

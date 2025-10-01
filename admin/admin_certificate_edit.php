@@ -238,9 +238,25 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'save_
         $pos_seminar_title_x    = (float)($_POST['pos_seminar_title_x'] ?? 0);
         $pos_seminar_title_y    = (float)($_POST['pos_seminar_title_y'] ?? 0);
 
-        $show_awardee = isset($_POST['show_awardee']) ? 1 : 0;
-        $show_seminar = isset($_POST['show_seminar']) ? 1 : 0;
-        $show_number  = isset($_POST['show_number'])  ? 1 : 0;
+  $show_awardee = isset($_POST['show_awardee']) ? 1 : 0;
+  $show_seminar = isset($_POST['show_seminar']) ? 1 : 0;
+  $show_number  = isset($_POST['show_number']) ? 1 : 0;
+
+  // Font settings
+  $allowedFonts = ['Helvetica','Arial','Times New Roman','Georgia','Courier'];
+  $sanitizeFont = function($f) use ($allowedFonts){ $f = trim((string)$f); return in_array($f,$allowedFonts,true)?$f:'Helvetica'; };
+  $sanitizeColor = function($c){ $c = trim((string)$c); return preg_match('/^#[0-9A-Fa-f]{6}$/',$c)?strtoupper($c):'#000000'; };
+  $clampSize = function($s,$def){ $n = (int)$s; if ($n<6) $n=6; if ($n>200) $n=200; return $n?:$def; };
+
+  $font_awardee_family = $sanitizeFont($_POST['font_awardee_family'] ?? 'Helvetica');
+  $font_awardee_size_px = $clampSize($_POST['font_awardee_size_px'] ?? 46,46);
+  $font_awardee_color = $sanitizeColor($_POST['font_awardee_color'] ?? '#000000');
+  $font_seminar_family = $sanitizeFont($_POST['font_seminar_family'] ?? 'Helvetica');
+  $font_seminar_size_px = $clampSize($_POST['font_seminar_size_px'] ?? 24,24);
+  $font_seminar_color = $sanitizeColor($_POST['font_seminar_color'] ?? '#000000');
+  $font_number_family = $sanitizeFont($_POST['font_number_family'] ?? 'Helvetica');
+  $font_number_size_px = $clampSize($_POST['font_number_size_px'] ?? 16,16);
+  $font_number_color = $sanitizeColor($_POST['font_number_color'] ?? '#000000');
 
         $new_bg = handle_image_upload('bg_upload');
         if (is_array($new_bg) && isset($new_bg['error'])) $errors[] = $new_bg['error'];
@@ -251,24 +267,46 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'save_
         if (is_string($new_bg)) $bg_url = $new_bg;
 
         if (empty($errors)) {
-            $sql = "UPDATE certificates SET
-                bg_url = ?, cert_awardee_name = ?, seminar_title = ?, cert_number_format = ?,
-                pos_cert_awardee_name_x = ?, pos_cert_awardee_name_y = ?,
-                pos_cert_number_x = ?, pos_cert_number_y = ?,
-                pos_seminar_title_x = ?, pos_seminar_title_y = ?,
-                show_awardee = ?, show_seminar = ?, show_number = ?
-                WHERE id = ?";
+      // Ensure font columns exist (light auto-migration)
+      $needCols = [
+        'font_awardee_family' => "ALTER TABLE certificates ADD COLUMN font_awardee_family VARCHAR(60) DEFAULT 'Helvetica'",
+        'font_awardee_size_px' => "ALTER TABLE certificates ADD COLUMN font_awardee_size_px INT DEFAULT 46",
+        'font_awardee_color' => "ALTER TABLE certificates ADD COLUMN font_awardee_color VARCHAR(15) DEFAULT '#000000'",
+        'font_seminar_family' => "ALTER TABLE certificates ADD COLUMN font_seminar_family VARCHAR(60) DEFAULT 'Helvetica'",
+        'font_seminar_size_px' => "ALTER TABLE certificates ADD COLUMN font_seminar_size_px INT DEFAULT 24",
+        'font_seminar_color' => "ALTER TABLE certificates ADD COLUMN font_seminar_color VARCHAR(15) DEFAULT '#000000'",
+        'font_number_family' => "ALTER TABLE certificates ADD COLUMN font_number_family VARCHAR(60) DEFAULT 'Helvetica'",
+        'font_number_size_px' => "ALTER TABLE certificates ADD COLUMN font_number_size_px INT DEFAULT 16",
+        'font_number_color' => "ALTER TABLE certificates ADD COLUMN font_number_color VARCHAR(15) DEFAULT '#000000'",
+      ];
+      $colsNow = [];
+      if ($c=$db->query("SHOW COLUMNS FROM certificates")) { while($cr=$c->fetch_assoc()){ $colsNow[$cr['Field']]=true; } $c->close(); }
+      foreach ($needCols as $cName=>$ddl) { if (!isset($colsNow[$cName])) { @$db->query($ddl); } }
+
+      $sql = "UPDATE certificates SET
+        bg_url = ?, cert_awardee_name = ?, seminar_title = ?, cert_number_format = ?,
+        pos_cert_awardee_name_x = ?, pos_cert_awardee_name_y = ?,
+        pos_cert_number_x = ?, pos_cert_number_y = ?,
+        pos_seminar_title_x = ?, pos_seminar_title_y = ?,
+        show_awardee = ?, show_seminar = ?, show_number = ?,
+        font_awardee_family = ?, font_awardee_size_px = ?, font_awardee_color = ?,
+        font_seminar_family = ?, font_seminar_size_px = ?, font_seminar_color = ?,
+        font_number_family = ?, font_number_size_px = ?, font_number_color = ?
+        WHERE id = ?";
             $st = $db->prepare($sql);
             if ($st) {
-                $st->bind_param(
-                    'ssssddddddiiii',
-                    $bg_url, $cert_awardee_name, $seminar_title, $cert_number_format,
-                    $pos_cert_awardee_name_x, $pos_cert_awardee_name_y,
-                    $pos_cert_number_x, $pos_cert_number_y,
-                    $pos_seminar_title_x, $pos_seminar_title_y,
-                    $show_awardee, $show_seminar, $show_number,
-                    $id
-                );
+        $st->bind_param(
+          'ssssddddddiiisssisssisi',
+          $bg_url, $cert_awardee_name, $seminar_title, $cert_number_format,
+          $pos_cert_awardee_name_x, $pos_cert_awardee_name_y,
+          $pos_cert_number_x, $pos_cert_number_y,
+          $pos_seminar_title_x, $pos_seminar_title_y,
+          $show_awardee, $show_seminar, $show_number,
+          $font_awardee_family, $font_awardee_size_px, $font_awardee_color,
+          $font_seminar_family, $font_seminar_size_px, $font_seminar_color,
+          $font_number_family, $font_number_size_px, $font_number_color,
+          $id
+        );
                 if ($st->execute()) {
                     $success = 'Certificate layout saved.';
                 } else {
@@ -326,7 +364,10 @@ if ($id > 0) {
     $st = $db->prepare("SELECT id, type, bg_url, cert_awardee_name, seminar_title, cert_number_format,
         pos_cert_awardee_name_x, pos_cert_awardee_name_y, pos_cert_number_x, pos_cert_number_y, pos_seminar_title_x, pos_seminar_title_y,
         show_awardee, show_seminar, show_number
-        FROM certificates WHERE id = ? LIMIT 1");
+  ,font_awardee_family,font_awardee_size_px,font_awardee_color,
+  font_seminar_family,font_seminar_size_px,font_seminar_color,
+  font_number_family,font_number_size_px,font_number_color
+  FROM certificates WHERE id = ? LIMIT 1");
     if ($st) { $st->bind_param('i', $id); $st->execute(); $res = $st->get_result(); $row = $res->fetch_assoc(); $st->close(); }
 
     $ss = $db->prepare("SELECT id, indicator, signature_url, pos_x, pos_y, enabled, width_pct FROM certificate_signatures WHERE certificate_id = ? ORDER BY id ASC");
@@ -341,248 +382,1129 @@ $show_number  = isset($row['show_number'])  ? (int)$row['show_number']  : 1;
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<title><?= $id>0 ? 'Layout Certificate #'.(int)$id : 'Create Certificate Template' ?></title>
+<title><?= $id>0 ? 'Certificate Editor — Layout #'.(int)$id : 'Create New Certificate Template' ?></title>
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+<link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.0/font/bootstrap-icons.css" rel="stylesheet">
 <style>
-body{background:#f8f9fa}
-.editor-wrap{display:flex;gap:18px}
-.canvas{position:relative;width:100%;max-width:960px;background:#fff;border:1px solid #e5e7eb;border-radius:8px;overflow:hidden}
-.bg-holder{width:100%;display:block}
-.overlay{position:absolute;inset:0;pointer-events:auto;z-index:2}  /* was: pointer-events:none */
-.draggable{position:absolute;cursor:move;pointer-events:auto;user-select:none}
-.ph{background:rgba(13,110,253,.08);border:1px dashed #0d6efd;border-radius:6px;padding:6px 10px;color:#212529}
-.ph.sig{background:transparent;border:1px dashed #6c757d;padding:0}
-.side{width:460px;max-width:100%}
-.label-sm{font-size:.85rem;color:#6c757d}
-.num{width:100px}
-.sig-row{border-bottom:1px solid #eee;padding-bottom:10px;margin-bottom:10px}
-.sig-thumb{max-width:180px;max-height:70px;display:block}
+:root {
+  --primary-gradient: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  --success-gradient: linear-gradient(135deg, #11998e 0%, #38ef7d 100%);
+  --surface-color: #ffffff;
+  --bg-subtle: #f8fafc;
+  --bg-canvas: #fafbfc;
+  --border-light: #e2e8f0;
+  --border-medium: #cbd5e1;
+  --text-primary: #1e293b;
+  --text-secondary: #64748b;
+  --text-muted: #94a3b8;
+  --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.05);
+  --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -1px rgb(0 0 0 / 0.06);
+  --shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -2px rgb(0 0 0 / 0.05);
+  --shadow-xl: 0 20px 25px -5px rgb(0 0 0 / 0.1), 0 10px 10px -5px rgb(0 0 0 / 0.04);
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  background: var(--bg-subtle);
+  font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+  color: var(--text-primary);
+  line-height: 1.6;
+  margin: 0;
+  padding: 0;
+}
+
+.header {
+  background: var(--primary-gradient);
+  color: white;
+  padding: 1.5rem 0;
+  box-shadow: var(--shadow-lg);
+  position: sticky;
+  top: 0;
+  z-index: 100;
+}
+
+.header-content {
+  max-width: 1600px;
+  margin: 0 auto;
+  padding: 0 1rem;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 1rem;
+}
+
+.header-title {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.header-title h1 {
+  font-size: 1.5rem;
+  font-weight: 600;
+  margin: 0;
+}
+
+.header-title .subtitle {
+  opacity: 0.9;
+  font-size: 0.875rem;
+  margin-left: 0.5rem;
+}
+
+.header-actions {
+  display: flex;
+  gap: 0.75rem;
+  align-items: center;
+}
+
+.btn-header {
+  background: rgba(255, 255, 255, 0.15);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  color: white;
+  padding: 0.5rem 1rem;
+  border-radius: var(--radius-md);
+  text-decoration: none;
+  font-weight: 500;
+  transition: all 0.2s ease;
+  backdrop-filter: blur(10px);
+}
+
+.btn-header:hover {
+  background: rgba(255, 255, 255, 0.25);
+  color: white;
+  transform: translateY(-1px);
+}
+
+.main-container {
+  max-width: 1600px;
+  margin: 0 auto;
+  padding: 2rem 1rem;
+}
+
+.editor-layout {
+  display: flex;
+  flex-direction: column;
+  gap: 2rem;
+}
+
+.canvas-section {
+  background: var(--surface-color);
+  border-radius: var(--radius-xl);
+  padding: 2rem;
+  box-shadow: var(--shadow-lg);
+  border: 1px solid var(--border-light);
+}
+
+.canvas-header {
+  display: flex;
+  justify-content: between;
+  align-items: center;
+  margin-bottom: 1.5rem;
+  padding-bottom: 1rem;
+  border-bottom: 1px solid var(--border-light);
+}
+
+.canvas-title {
+  font-size: 1.25rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.canvas-tools {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.tool-btn {
+  width: 36px;
+  height: 36px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-light);
+  background: var(--surface-color);
+  color: var(--text-secondary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  font-size: 0.875rem;
+}
+
+.tool-btn:hover {
+  background: var(--bg-subtle);
+  color: var(--text-primary);
+  transform: scale(1.05);
+  box-shadow: var(--shadow-sm);
+}
+
+.tool-btn.active {
+  background: var(--primary-gradient);
+  color: white;
+  border-color: transparent;
+}
+
+.canvas-wrapper {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-height: 70vh;
+  background: var(--bg-canvas);
+  border-radius: var(--radius-lg);
+  border: 2px dashed var(--border-medium);
+  position: relative;
+  overflow: auto;
+  padding: 2rem;
+}
+
+.canvas {
+  position: relative;
+  background: #fff;
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-xl);
+  overflow: hidden;
+  transition: transform 0.3s ease;
+  max-width: 95%;
+  max-height: none;
+}
+
+.canvas:hover {
+  transform: scale(1.01);
+}
+
+.bg-holder {
+  display: block;
+  width: auto;
+  height: auto;
+  max-width: none;
+  max-height: 70vh;
+}
+
+.overlay {
+  position: absolute;
+  inset: 0;
+  pointer-events: auto;
+  z-index: 2;
+}
+
+.draggable {
+  position: absolute;
+  cursor: move;
+  pointer-events: auto;
+  user-select: none;
+  transition: all 0.2s ease;
+}
+
+.draggable:hover {
+  transform: scale(1.05);
+  z-index: 10;
+}
+
+.draggable.dragging {
+  transform: scale(1.1);
+  z-index: 20;
+  box-shadow: var(--shadow-lg);
+}
+
+.ph {
+  background: rgba(99, 102, 241, 0.1);
+  border: 2px dashed #6366f1;
+  border-radius: var(--radius-sm);
+  padding: 8px 12px;
+  color: var(--text-primary);
+  font-weight: 500;
+  backdrop-filter: blur(8px);
+  min-height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.ph:hover {
+  background: rgba(99, 102, 241, 0.15);
+  border-color: #4f46e5;
+}
+
+.ph.sig {
+  background: rgba(168, 85, 247, 0.1);
+  border-color: #a855f7;
+  padding: 0;
+  overflow: hidden;
+}
+
+.ph.sig:hover {
+  background: rgba(168, 85, 247, 0.15);
+  border-color: #9333ea;
+}
+
+.sidebar {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 1.5rem;
+  width: 100%;
+}
+
+.sidebar-card {
+  background: var(--surface-color);
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--border-light);
+  box-shadow: var(--shadow-md);
+  overflow: hidden;
+}
+
+.sidebar-header {
+  padding: 1rem 1.25rem;
+  background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
+  border-bottom: 1px solid var(--border-light);
+  display: flex;
+  align-items: center;
+  justify-content: between;
+  gap: 0.5rem;
+}
+
+.sidebar-title {
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.sidebar-body {
+  padding: 1.25rem;
+}
+
+.form-section {
+  margin-bottom: 1.5rem;
+}
+
+.form-section:last-child {
+  margin-bottom: 0;
+}
+
+.form-section-title {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.025em;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.form-group {
+  margin-bottom: 1rem;
+}
+
+.form-label {
+  display: block;
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: var(--text-secondary);
+  margin-bottom: 0.5rem;
+}
+
+.form-control-modern {
+  width: 100%;
+  padding: 0.75rem;
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-sm);
+  font-size: 0.875rem;
+  color: var(--text-primary);
+  background: var(--surface-color);
+  transition: all 0.2s ease;
+}
+
+.form-control-modern:focus {
+  outline: none;
+  border-color: #6366f1;
+  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1);
+}
+
+.form-control-sm {
+  padding: 0.5rem 0.75rem;
+  font-size: 0.8125rem;
+}
+
+.switch-container {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.75rem;
+  background: var(--bg-subtle);
+  border-radius: var(--radius-sm);
+  margin-bottom: 0.75rem;
+}
+
+.switch {
+  position: relative;
+  width: 44px;
+  height: 24px;
+  background: var(--border-medium);
+  border-radius: 12px;
+  cursor: pointer;
+  transition: background 0.2s ease;
+}
+
+.switch.active {
+  background: #22c55e;
+}
+
+.switch-thumb {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 20px;
+  height: 20px;
+  background: white;
+  border-radius: 50%;
+  transition: transform 0.2s ease;
+  box-shadow: var(--shadow-sm);
+}
+
+.switch.active .switch-thumb {
+  transform: translateX(20px);
+}
+
+.switch-label {
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: var(--text-primary);
+  cursor: pointer;
+}
+
+.position-grid {
+  display: grid;
+  grid-template-columns: auto 1fr 1fr;
+  gap: 0.5rem;
+  align-items: center;
+  padding: 0.75rem;
+  background: var(--bg-subtle);
+  border-radius: var(--radius-sm);
+  margin-bottom: 0.75rem;
+}
+
+.position-label {
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: var(--text-secondary);
+  min-width: 80px;
+}
+
+.num-input {
+  width: 100%;
+  padding: 0.5rem;
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-sm);
+  font-size: 0.8125rem;
+  text-align: center;
+  font-family: 'SF Mono', Monaco, 'Cascadia Code', monospace;
+}
+
+.font-config {
+  display: grid;
+  grid-template-columns: 2fr 1fr 1fr;
+  gap: 0.5rem;
+  align-items: end;
+  padding: 1rem;
+  background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-sm);
+  margin-bottom: 1rem;
+}
+
+.font-config-title {
+  grid-column: 1 / -1;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  margin-bottom: 0.5rem;
+  text-transform: uppercase;
+  letter-spacing: 0.025em;
+}
+
+.sig-item {
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-sm);
+  padding: 1rem;
+  margin-bottom: 1rem;
+  background: var(--bg-subtle);
+}
+
+.sig-item:last-child {
+  margin-bottom: 0;
+}
+
+.sig-header {
+  display: flex;
+  align-items: center;
+  justify-content: between;
+  margin-bottom: 1rem;
+}
+
+.sig-indicator {
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.sig-thumb {
+  max-width: 120px;
+  max-height: 60px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-light);
+  box-shadow: var(--shadow-sm);
+}
+
+.width-slider-container {
+  margin: 0.75rem 0;
+}
+
+.width-slider {
+  width: 100%;
+  height: 6px;
+  border-radius: 3px;
+  background: var(--border-light);
+  outline: none;
+  -webkit-appearance: none;
+}
+
+.width-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #6366f1;
+  cursor: pointer;
+  box-shadow: var(--shadow-sm);
+}
+
+.width-slider::-moz-range-thumb {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #6366f1;
+  cursor: pointer;
+  border: none;
+  box-shadow: var(--shadow-sm);
+}
+
+.btn-modern {
+  padding: 0.75rem 1.5rem;
+  border-radius: var(--radius-sm);
+  font-weight: 500;
+  font-size: 0.875rem;
+  border: none;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  text-decoration: none;
+}
+
+.btn-primary-modern {
+  background: var(--primary-gradient);
+  color: white;
+  box-shadow: var(--shadow-sm);
+}
+
+.btn-primary-modern:hover {
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-md);
+  color: white;
+}
+
+.btn-success-modern {
+  background: var(--success-gradient);
+  color: white;
+  box-shadow: var(--shadow-sm);
+}
+
+.btn-success-modern:hover {
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-md);
+  color: white;
+}
+
+.btn-outline-modern {
+  background: var(--surface-color);
+  border: 1px solid var(--border-light);
+  color: var(--text-primary);
+}
+
+.btn-outline-modern:hover {
+  background: var(--bg-subtle);
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-sm);
+  color: var(--text-primary);
+}
+
+.btn-danger-modern {
+  background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+  color: white;
+  box-shadow: var(--shadow-sm);
+}
+
+.btn-danger-modern:hover {
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-md);
+  color: white;
+}
+
+.action-buttons {
+  display: flex;
+  gap: 0.75rem;
+  margin-top: 1.5rem;
+}
+
+.help-text {
+  font-size: 0.8125rem;
+  color: var(--text-muted);
+  margin-top: 0.5rem;
+  line-height: 1.4;
+}
+
+.create-section {
+  background: var(--surface-color);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-xl);
+  padding: 2rem;
+  box-shadow: var(--shadow-lg);
+}
+
+.create-header {
+  text-align: center;
+  margin-bottom: 2rem;
+}
+
+.create-title {
+  font-size: 2rem;
+  font-weight: 700;
+  background: var(--primary-gradient);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  margin-bottom: 0.5rem;
+}
+
+.create-subtitle {
+  color: var(--text-secondary);
+  font-size: 1.125rem;
+}
+
+@media (max-width: 768px) {
+  .sidebar {
+    grid-template-columns: 1fr;
+  }
+  
+  .canvas-wrapper {
+    min-height: 50vh;
+    padding: 1rem;
+  }
+  
+  .main-container {
+    padding: 1rem;
+  }
+  
+  .canvas-section,
+  .sidebar-card {
+    padding: 1rem;
+  }
+  
+  .header-content {
+    flex-direction: column;
+    align-items: stretch;
+    text-align: center;
+  }
+  
+  .header-actions {
+    justify-content: center;
+  }
+  
+  .action-buttons {
+    flex-direction: column;
+  }
+}
+
+.loading-state {
+  display: none;
+  position: absolute;
+  inset: 0;
+  background: rgba(255, 255, 255, 0.9);
+  backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.spinner {
+  width: 32px;
+  height: 32px;
+  border: 3px solid var(--border-light);
+  border-top-color: #6366f1;
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
 </style>
 </head>
-<body class="p-3">
-<div class="container-fluid">
-  <div class="d-flex justify-content-between align-items-center mb-3">
-    <h4 class="mb-0"><?= $id>0 ? 'Drag & Drop Layout' : 'New Certificate Template' ?></h4>
-    <a href="admin_certificate_settings.php" class="btn btn-outline-secondary btn-sm">Back</a>
+<body>
+  <div class="header">
+    <div class="header-content">
+      <div class="header-title">
+        <i class="bi bi-palette"></i>
+        <div>
+          <h1><?= $id>0 ? 'Certificate Layout Editor' : 'Create New Template' ?></h1>
+          <?php if ($id > 0): ?>
+            <span class="subtitle">Template ID: <?= (int)$id ?> • Type: <?= e($row['type'] ?? 'Unknown') ?></span>
+          <?php endif; ?>
+        </div>
+      </div>
+      <div class="header-actions">
+        <?php if ($id > 0): ?>
+          <a href="admin_certificate_preview.php?id=<?= (int)$id ?>" class="btn-header" target="_blank">
+            <i class="bi bi-eye me-2"></i>Preview
+          </a>
+        <?php endif; ?>
+        <a href="admin_certificate_settings.php" class="btn-header">
+          <i class="bi bi-arrow-left me-2"></i>Back to Settings
+        </a>
+      </div>
+    </div>
   </div>
 
-  <?php if (!empty($errors)): ?>
-    <div class="alert alert-danger"><ul class="mb-0"><?php foreach ($errors as $err): ?><li><?= e($err) ?></li><?php endforeach; ?></ul></div>
-  <?php endif; ?>
-  <?php if ($success): ?>
-    <div class="alert alert-success"><?= e($success) ?></div>
-  <?php endif; ?>
+  <div class="main-container">
+    <?php if (!empty($errors)): ?>
+      <div class="alert alert-danger">
+        <h6 class="alert-heading"><i class="bi bi-exclamation-triangle me-2"></i>Please fix the following errors:</h6>
+        <ul class="mb-0"><?php foreach ($errors as $err): ?><li><?= e($err) ?></li><?php endforeach; ?></ul>
+      </div>
+    <?php endif; ?>
+    
+    <?php if ($success): ?>
+      <div class="alert alert-success">
+        <i class="bi bi-check-circle me-2"></i><?= e($success) ?>
+      </div>
+    <?php endif; ?>
 
-  <?php if ($id <= 0): ?>
-    <div class="card">
-      <div class="card-body">
-        <form method="post" enctype="multipart/form-data" class="row g-3">
+    <?php if ($id <= 0): ?>
+      <div class="create-section">
+        <div class="create-header">
+          <h2 class="create-title">Create Certificate Template</h2>
+          <p class="create-subtitle">Design a new certificate template with background, placeholders, and signatures</p>
+        </div>
+
+        <form method="post" enctype="multipart/form-data">
           <input type="hidden" name="csrf_token" value="<?= e($_SESSION['csrf_token']) ?>">
           <input type="hidden" name="action" value="create_template">
-          <div class="col-md-3">
-            <label class="form-label">Type</label>
-            <input type="text" class="form-control" name="type" value="attendance" placeholder="e.g. attendance" required>
-          </div>
-          <div class="col-md-9">
-            <label class="form-label">Background Image</label>
-            <input type="file" class="form-control" name="bg_upload" accept="image/png,image/jpeg" required>
-          </div>
-
-          <div class="col-md-6">
-            <label class="form-label">Awardee Placeholder</label>
-            <input type="text" class="form-control" name="awardee_placeholder" value="{USER_NAME}">
-          </div>
-          <div class="col-md-6">
-            <label class="form-label">Seminar Title Placeholder</label>
-            <input type="text" class="form-control" name="seminar_placeholder" value="{SEMINAR_TITLE}">
-          </div>
-          <div class="col-md-6">
-            <label class="form-label">Certificate Number Format</label>
-            <input type="text" class="form-control" name="cert_number_format" value="NC-{YYYY}-{SEQ4}">
-            <div class="label-sm mt-1">Tokens: {YYYY}, {MM}, {DD}, {SEQ4}, {USER_ID}</div>
-          </div>
-
-          <div class="col-12">
-            <div class="card mt-2">
-              <div class="card-header d-flex justify-content-between align-items-center">
-                <span>Pre-uploaded Signatures</span>
-                <button type="button" class="btn btn-sm btn-outline-primary" id="addSigBtn">+ Add another</button>
+          
+          <div class="row g-4">
+            <div class="col-lg-4">
+              <div class="form-group">
+                <label class="form-label">
+                  <i class="bi bi-tag me-2"></i>Template Type
+                </label>
+                <input type="text" class="form-control-modern" name="type" value="attendance" placeholder="e.g. attendance, participation" required>
+                <div class="help-text">Enter a descriptive name for this certificate type</div>
               </div>
-              <div class="card-body" id="sigUploadList">
-                <div class="row g-2 sig-upload-item">
-                  <div class="col-sm-4">
-                    <input type="text" class="form-control form-control-sm" name="new_sig_indicator[]" placeholder="Indicator (e.g. Chair)">
+            </div>
+            
+            <div class="col-lg-8">
+              <div class="form-group">
+                <label class="form-label">
+                  <i class="bi bi-image me-2"></i>Background Image
+                </label>
+                <input type="file" class="form-control-modern" name="bg_upload" accept="image/png,image/jpeg" required>
+                <div class="help-text">Upload a high-quality PNG or JPEG background (recommended: 1920x1080 or higher)</div>
+              </div>
+            </div>
+
+            <div class="col-lg-6">
+              <div class="form-group">
+                <label class="form-label">
+                  <i class="bi bi-person me-2"></i>Awardee Name Placeholder
+                </label>
+                <input type="text" class="form-control-modern" name="awardee_placeholder" value="{USER_NAME}">
+                <div class="help-text">Text that will be replaced with the recipient's name</div>
+              </div>
+            </div>
+            
+            <div class="col-lg-6">
+              <div class="form-group">
+                <label class="form-label">
+                  <i class="bi bi-calendar-event me-2"></i>Seminar Title Placeholder
+                </label>
+                <input type="text" class="form-control-modern" name="seminar_placeholder" value="{SEMINAR_TITLE}">
+                <div class="help-text">Text that will be replaced with the event/seminar name</div>
+              </div>
+            </div>
+            
+            <div class="col-lg-6">
+              <div class="form-group">
+                <label class="form-label">
+                  <i class="bi bi-hash me-2"></i>Certificate Number Format
+                </label>
+                <input type="text" class="form-control-modern" name="cert_number_format" value="NC-{YYYY}-{SEQ4}">
+                <div class="help-text">Available tokens: {YYYY}, {MM}, {DD}, {SEQ4}, {USER_ID}</div>
+              </div>
+            </div>
+
+            <div class="col-12">
+              <div class="sidebar-card">
+                <div class="sidebar-header">
+                  <h3 class="sidebar-title">
+                    <i class="bi bi-pen"></i>Signatures
+                  </h3>
+                  <button type="button" class="btn btn-sm btn-outline-primary" id="addSigBtn">
+                    <i class="bi bi-plus me-1"></i>Add Signature
+                  </button>
+                </div>
+                <div class="sidebar-body">
+                  <div id="sigUploadList">
+                    <div class="sig-upload-item">
+                      <div class="row g-3 align-items-end">
+                        <div class="col-lg-4">
+                          <label class="form-label">Role/Title</label>
+                          <input type="text" class="form-control-modern form-control-sm" name="new_sig_indicator[]" placeholder="e.g. Chair, Director">
+                        </div>
+                        <div class="col-lg-6">
+                          <label class="form-label">Signature Image</label>
+                          <input type="file" class="form-control-modern form-control-sm" name="new_sig_file[]" accept="image/png,image/jpeg">
+                        </div>
+                        <div class="col-lg-2">
+                          <button type="button" class="btn btn-outline-danger btn-modern btn-sm removeSigBtn">
+                            <i class="bi bi-trash"></i>
+                          </button>
+                        </div>
+                      </div>
+                    </div>
                   </div>
-                  <div class="col-sm-6">
-                    <input type="file" class="form-control form-control-sm" name="new_sig_file[]" accept="image/png,image/jpeg">
-                  </div>
-                  <div class="col-sm-2 d-grid">
-                    <button type="button" class="btn btn-sm btn-outline-danger removeSigBtn">Remove</button>
+                  <div class="help-text mt-2">
+                    <i class="bi bi-info-circle me-1"></i>
+                    Upload signature images with transparent backgrounds for best results. You can position them after creating the template.
                   </div>
                 </div>
               </div>
-              <div class="label-sm px-3 pb-2">You can drag and position them on the next screen.</div>
             </div>
           </div>
 
-          <div class="col-12 d-flex gap-2">
-            <button class="btn btn-primary">Create & Configure Layout</button>
+          <div class="action-buttons">
+            <button class="btn btn-primary-modern btn-modern">
+              <i class="bi bi-plus-circle me-2"></i>Create Template & Open Layout Editor
+            </button>
+            <a href="admin_certificate_settings.php" class="btn btn-outline-modern btn-modern">
+              <i class="bi bi-x-circle me-2"></i>Cancel
+            </a>
           </div>
         </form>
       </div>
-    </div>
-  <?php else: ?>
-    <form method="post" enctype="multipart/form-data" id="editorForm" novalidate autocomplete="off">
-      <input type="hidden" name="csrf_token" value="<?= e($_SESSION['csrf_token']) ?>">
-      <input type="hidden" name="action" value="save_layout">
-      <div class="editor-wrap">
-        <div class="canvas">
-          <img id="bgImage" class="bg-holder" src="<?= e($row['bg_url'] ? asset_url($row['bg_url']) : '') ?>" alt="Background">
-          <div id="overlay" class="overlay">
-            <div id="ph-awardee" class="draggable ph" style="left:0;top:0;<?= $show_awardee? '' : 'display:none;' ?>"><?= e($row['cert_awardee_name'] ?: '{USER_NAME}') ?></div>
-            <div id="ph-seminar" class="draggable ph" style="left:0;top:0;<?= $show_seminar? '' : 'display:none;' ?>"><?= e($row['seminar_title'] ?: '{SEMINAR_TITLE}') ?></div>
-            <div id="ph-number" class="draggable ph" style="left:0;top:0;<?= $show_number? '' : 'display:none;' ?>"><?= e($row['cert_number_format'] ?: 'NC-{YYYY}-{SEQ4}') ?></div>
-
-            <?php foreach ($sigs as $sg): ?>
-              <?php $sid = (int)$sg['id']; $enabled = isset($sg['enabled']) ? (int)$sg['enabled'] : 1; ?>
-              <?php if (!empty($sg['signature_url'])): ?>
-                <img
-                  id="sig-<?= $sid ?>"
-                  class="draggable ph sig sig-node"
-                  data-id="<?= $sid ?>"
-                  src="<?= e(asset_url($sg['signature_url'])) ?>"
-                  alt="<?= e($sg['indicator']) ?>"
-                  style="left:0;top:0;width:<?= (float)($sg['width_pct'] ?? 25) ?>%;height:auto;max-width:none;<?= $enabled? '' : 'display:none;' ?>">
-              <?php else: ?>
-                <div id="sig-<?= $sid ?>" class="draggable ph sig sig-node" data-id="<?= $sid ?>" style="left:0;top:0;width:<?= (float)($sg['width_pct'] ?? 25) ?>%;height:60px;display:flex;align-items:center;justify-content:center;<?= $enabled? '' : 'display:none;' ?>">
-                  <?= e($sg['indicator'] ?: '{SIGNATURE_URL}') ?>
-                </div>
-              <?php endif; ?>
-            <?php endforeach; ?>
-          </div>
-        </div>
-
-        <div class="side">
-          <div class="card mb-3">
-            <div class="card-header">Assets</div>
-            <div class="card-body">
-              <div class="mb-2">
-                <label class="form-label">Background Image</label>
-                <input type="file" class="form-control" name="bg_upload" accept="image/png,image/jpeg">
+    <?php else: ?>
+      <form method="post" enctype="multipart/form-data" id="editorForm" novalidate autocomplete="off">
+        <input type="hidden" name="csrf_token" value="<?= e($_SESSION['csrf_token']) ?>">
+        <input type="hidden" name="action" value="save_layout">
+        
+        <div class="editor-layout">
+          <div class="canvas-section">
+            <div class="canvas-header">
+              <h2 class="canvas-title">
+                <i class="bi bi-layout-wtf"></i>
+                Certificate Canvas
+              </h2>
+              <div class="canvas-tools">
+                <button type="button" class="tool-btn" id="resetBtn" title="Reset all positions">
+                  <i class="bi bi-arrow-clockwise"></i>
+                </button>
+                <button type="button" class="tool-btn" id="gridToggle" title="Toggle grid">
+                  <i class="bi bi-grid"></i>
+                </button>
+                <button type="button" class="tool-btn" id="zoomFit" title="Fit to screen">
+                  <i class="bi bi-arrows-fullscreen"></i>
+                </button>
               </div>
             </div>
-          </div>
-
-          <div class="card mb-3">
-            <div class="card-header d-flex justify-content-between align-items-center">
-              <span>Placeholders</span>
-              <span class="label-sm">Toggle visibility</span>
-            </div>
-            <div class="card-body">
-              <div class="form-check form-switch mb-2">
-                <input class="form-check-input" type="checkbox" id="toggle-awardee" name="show_awardee" <?= $show_awardee ? 'checked' : '' ?>>
-                <label class="form-check-label" for="toggle-awardee">Show Awardee</label>
-              </div>
-              <div class="form-check form-switch mb-2">
-                <input class="form-check-input" type="checkbox" id="toggle-seminar" name="show_seminar" <?= $show_seminar ? 'checked' : '' ?>>
-                <label class="form-check-label" for="toggle-seminar">Show Seminar Title</label>
-              </div>
-              <div class="form-check form-switch mb-3">
-                <input class="form-check-input" type="checkbox" id="toggle-number" name="show_number" <?= $show_number ? 'checked' : '' ?>>
-                <label class="form-check-label" for="toggle-number">Show Certificate Number</label>
-              </div>
-
-              <div class="mb-2">
-                <label class="form-label">Awardee Placeholder</label>
-                <input type="text" class="form-control" name="awardee_placeholder" id="inp-awardee" value="<?= e($row['cert_awardee_name'] ?: '{USER_NAME}') ?>">
-              </div>
-              <div class="mb-2">
-                <label class="form-label">Seminar Title Placeholder</label>
-                <input type="text" class="form-control" name="seminar_placeholder" id="inp-seminar" value="<?= e($row['seminar_title'] ?: '{SEMINAR_TITLE}') ?>">
-              </div>
-              <div class="mb-2">
-                <label class="form-label">Cert Number Format</label>
-                <input type="text" class="form-control" name="cert_number_format" id="inp-number" value="<?= e($row['cert_number_format'] ?: 'NC-{YYYY}-{SEQ4}') ?>">
-              </div>
-            </div>
-          </div>
-
-          <div class="card mb-3">
-            <div class="card-header d-flex justify-content-between">
-              <span>Positions (%)</span>
-              <span class="label-sm">Top/Left as % of image</span>
-            </div>
-            <div class="card-body">
-              <div class="mb-2 d-flex align-items-center gap-2">
-                <span class="label-sm">Awardee</span>
-                <input type="number" step="any" class="form-control form-control-sm num" name="pos_cert_awardee_name_x" id="pos-awardee-x" value="<?= (float)($row['pos_cert_awardee_name_x'] ?? 0) ?>">
-                <input type="number" step="any" class="form-control form-control-sm num" name="pos_cert_awardee_name_y" id="pos-awardee-y" value="<?= (float)($row['pos_cert_awardee_name_y'] ?? 0) ?>">
-              </div>
-              <div class="mb-2 d-flex align-items-center gap-2">
-                <span class="label-sm">Seminar Title</span>
-                <input type="number" step="any" class="form-control form-control-sm num" name="pos_seminar_title_x" id="pos-seminar-x" value="<?= (float)($row['pos_seminar_title_x'] ?? 0) ?>">
-                <input type="number" step="any" class="form-control form-control-sm num" name="pos_seminar_title_y" id="pos-seminar-y" value="<?= (float)($row['pos_seminar_title_y'] ?? 0) ?>">
-              </div>
-              <div class="mb-2 d-flex align-items-center gap-2">
-                <span class="label-sm">Cert Number</span>
-                <input type="number" step="any" class="form-control form-control-sm num" name="pos_cert_number_x" id="pos-number-x" value="<?= (float)($row['pos_cert_number_x'] ?? 0) ?>">
-                <input type="number" step="any" class="form-control form-control-sm num" name="pos_cert_number_y" id="pos-number-y" value="<?= (float)($row['pos_cert_number_y'] ?? 0) ?>">
-              </div>
-              <div class="label-sm mt-3 mb-1">Signatures are toggled and positioned per row below.</div>
-            </div>
-          </div>
-
-          <div class="card">
-            <div class="card-header d-flex justify-content-between align-items-center">
-              <span>Signatures</span>
-              <span class="label-sm">Toggle visibility per signature</span>
-            </div>
-            <div class="card-body">
-              <?php foreach ($sigs as $sg): $sid=(int)$sg['id']; $enabled=(int)($sg['enabled'] ?? 1); ?>
-                <div class="sig-row">
-                  <div class="form-check form-switch mb-2">
-                    <input class="form-check-input sig-enabled-toggle" type="checkbox" id="sig-enabled-<?= $sid ?>" name="sig_enabled[<?= $sid ?>]" data-id="<?= $sid ?>" <?= $enabled ? 'checked' : '' ?>>
-                    <label class="form-check-label" for="sig-enabled-<?= $sid ?>">Enabled (<?= e($sg['indicator']) ?>)</label>
+            
+            <div class="canvas-wrapper">
+              <div id="canvas" class="canvas">
+                <img id="bgImage" class="bg-holder" src="<?= e($row['bg_url'] ? asset_url($row['bg_url']) : '') ?>" alt="Background">
+                <div id="overlay" class="overlay">
+                  <div id="ph-awardee" class="draggable ph" style="left:0;top:0;<?= $show_awardee? '' : 'display:none;' ?>" title="Drag to reposition awardee name">
+                    <?= e($row['cert_awardee_name'] ?: '{USER_NAME}') ?>
                   </div>
-                  <div class="mb-1">
-                    <label class="form-label">Indicator</label>
-                    <input type="text" class="form-control form-control-sm" name="sig_indicator[<?= $sid ?>]" value="<?= e($sg['indicator']) ?>">
+                  <div id="ph-seminar" class="draggable ph" style="left:0;top:0;<?= $show_seminar? '' : 'display:none;' ?>" title="Drag to reposition seminar title">
+                    <?= e($row['seminar_title'] ?: '{SEMINAR_TITLE}') ?>
                   </div>
-                  <div class="mb-1">
-                    <label class="form-label">Replace Image</label>
-                    <input type="file" class="form-control form-control-sm" name="sig_file[<?= $sid ?>]" accept="image/png,image/jpeg">
+                  <div id="ph-number" class="draggable ph" style="left:0;top:0;<?= $show_number? '' : 'display:none;' ?>" title="Drag to reposition certificate number">
+                    <?= e($row['cert_number_format'] ?: 'NC-{YYYY}-{SEQ4}') ?>
+                  </div>
+
+                  <?php foreach ($sigs as $sg): ?>
+                    <?php $sid = (int)$sg['id']; $enabled = isset($sg['enabled']) ? (int)$sg['enabled'] : 1; ?>
                     <?php if (!empty($sg['signature_url'])): ?>
-                      <img class="sig-thumb mt-1" src="<?= e(asset_url($sg['signature_url'])) ?>" alt="">
+                      <img
+                        id="sig-<?= $sid ?>"
+                        class="draggable ph sig sig-node"
+                        data-id="<?= $sid ?>"
+                        src="<?= e(asset_url($sg['signature_url'])) ?>"
+                        alt="<?= e($sg['indicator']) ?>"
+                        title="Drag to reposition <?= e($sg['indicator']) ?> signature"
+                        style="left:0;top:0;width:<?= (float)($sg['width_pct'] ?? 25) ?>%;height:auto;max-width:none;<?= $enabled? '' : 'display:none;' ?>">
                     <?php else: ?>
-                      <div class="label-sm mt-1">No image uploaded (using placeholder box)</div>
+                      <div id="sig-<?= $sid ?>" class="draggable ph sig sig-node" data-id="<?= $sid ?>" 
+                           title="Drag to reposition <?= e($sg['indicator']) ?> signature"
+                           style="left:0;top:0;width:<?= (float)($sg['width_pct'] ?? 25) ?>%;height:60px;display:flex;align-items:center;justify-content:center;<?= $enabled? '' : 'display:none;' ?>">
+                        <i class="bi bi-pen me-2"></i><?= e($sg['indicator'] ?: '{SIGNATURE}') ?>
+                      </div>
                     <?php endif; ?>
-                  </div>
-                  <div class="mb-2">
-                    <label class="form-label">Width: <span id="sig-width-label-<?= $sid ?>"><?= (float)($sg['width_pct'] ?? 25) ?></span>%</label>
-                    <input type="range" min="5" max="100" step="1" class="form-range" name="sig_width[<?= $sid ?>]" id="sig-width-<?= $sid ?>" value="<?= (float)($sg['width_pct'] ?? 25) ?>">
-                  </div>
-                  <input type="hidden" name="sig_pos_x[<?= $sid ?>]" id="sig-pos-x-<?= $sid ?>" value="<?= (float)$sg['pos_x'] ?>">
-                  <input type="hidden" name="sig_pos_y[<?= $sid ?>]" id="sig-pos-y-<?= $sid ?>" value="<?= (float)$sg['pos_y'] ?>">
-                  <div class="form-check mt-1">
-                    <input class="form-check-input" type="checkbox" name="sig_remove[<?= $sid ?>]" id="sig-remove-<?= $sid ?>" value="1">
-                    <label class="form-check-label" for="sig-remove-<?= $sid ?>">Remove this signature</label>
-                  </div>
+                  <?php endforeach; ?>
                 </div>
-              <?php endforeach; ?>
-
-              <div class="d-flex gap-2 mt-3">
-                <button class="btn btn-success w-100" formnovalidate>Save Layout</button>
-                <button type="button" id="resetBtn" class="btn btn-outline-secondary">Reset positions</button>
               </div>
             </div>
           </div>
 
+          <div class="sidebar">
+            <div class="sidebar-card">
+              <div class="sidebar-header">
+                <h3 class="sidebar-title">
+                  <i class="bi bi-image"></i>Background
+                </h3>
+              </div>
+              <div class="sidebar-body">
+                <div class="form-group">
+                  <label class="form-label">Replace Background Image</label>
+                  <input type="file" class="form-control-modern" name="bg_upload" accept="image/png,image/jpeg">
+                  <div class="help-text">Upload a new background to replace the current one</div>
+                </div>
+              </div>
+            </div>
+
+            <div class="sidebar-card">
+              <div class="sidebar-header">
+                <h3 class="sidebar-title">
+                  <i class="bi bi-type"></i>Text Elements
+                </h3>
+              </div>
+              <div class="sidebar-body">
+                <div class="form-section">
+                  <div class="form-section-title">
+                    <i class="bi bi-eye"></i>Visibility
+                  </div>
+                  
+                  <div class="switch-container">
+                    <div class="switch <?= $show_awardee ? 'active' : '' ?>" data-target="toggle-awardee">
+                      <div class="switch-thumb"></div>
+                    </div>
+                    <label class="switch-label" for="toggle-awardee">Awardee Name</label>
+                    <input type="checkbox" id="toggle-awardee" name="show_awardee" <?= $show_awardee ? 'checked' : '' ?> style="display:none;">
+                  </div>
+                  
+                  <div class="switch-container">
+                    <div class="switch <?= $show_seminar ? 'active' : '' ?>" data-target="toggle-seminar">
+                      <div class="switch-thumb"></div>
+                    </div>
+                    <label class="switch-label" for="toggle-seminar">Seminar Title</label>
+                    <input type="checkbox" id="toggle-seminar" name="show_seminar" <?= $show_seminar ? 'checked' : '' ?> style="display:none;">
+                  </div>
+                  
+                  <div class="switch-container">
+                    <div class="switch <?= $show_number ? 'active' : '' ?>" data-target="toggle-number">
+                      <div class="switch-thumb"></div>
+                    </div>
+                    <label class="switch-label" for="toggle-number">Certificate Number</label>
+                    <input type="checkbox" id="toggle-number" name="show_number" <?= $show_number ? 'checked' : '' ?> style="display:none;">
+                  </div>
+                </div>
+
+                <div class="form-section">
+                  <div class="form-section-title">
+                    <i class="bi bi-pencil"></i>Content
+                  </div>
+                  
+                  <div class="form-group">
+                    <label class="form-label">Awardee Name Placeholder</label>
+                    <input type="text" class="form-control-modern" name="awardee_placeholder" id="inp-awardee" value="<?= e($row['cert_awardee_name'] ?: '{USER_NAME}') ?>">
+                  </div>
+                  
+                  <div class="form-group">
+                    <label class="form-label">Seminar Title Placeholder</label>
+                    <input type="text" class="form-control-modern" name="seminar_placeholder" id="inp-seminar" value="<?= e($row['seminar_title'] ?: '{SEMINAR_TITLE}') ?>">
+                  </div>
+                  
+                  <div class="form-group">
+                    <label class="form-label">Certificate Number Format</label>
+                    <input type="text" class="form-control-modern" name="cert_number_format" id="inp-number" value="<?= e($row['cert_number_format'] ?: 'NC-{YYYY}-{SEQ4}') ?>">
+                    <div class="help-text">Available: {YYYY}, {MM}, {DD}, {SEQ4}, {USER_ID}</div>
+                  </div>
+                </div>
+
+                <div class="form-section">
+                  <div class="form-section-title">
+                    <i class="bi bi-fonts"></i>Typography
+                  </div>
+                  
+                  <?php
+                    $fontDefaults = [
+                      'font_awardee_family'=>'Helvetica','font_awardee_size_px'=>46,'font_awardee_color'=>'#000000',
+                      'font_seminar_family'=>'Helvetica','font_seminar_size_px'=>24,'font_seminar_color'=>'#000000',
+                      'font_number_family'=>'Helvetica','font_number_size_px'=>16,'font_number_color'=>'#000000'
+                    ];
+                    foreach($fontDefaults as $k=>$v){ if(!isset($row[$k])||$row[$k]==''){ $row[$k]=$v; } }
+                    $fontOptions = ['Helvetica','Arial','Times New Roman','Georgia','Courier'];
+                    function fontSelectModern($name,$current,$options){
+                      $h='<select class="form-control-modern form-control-sm" name="'.$name.'">';
+                      foreach($options as $o){ $sel=$o===$current?'selected':''; $h.='<option '.$sel.'>'.htmlspecialchars($o).'</option>'; } $h.='</select>'; return $h; }
+                  ?>
+                  
+                  <div class="font-config">
+                    <div class="font-config-title">Awardee Name</div>
+                    <?= fontSelectModern('font_awardee_family',$row['font_awardee_family'],$fontOptions) ?>
+                    <input type="number" min="6" max="200" class="form-control-modern form-control-sm" name="font_awardee_size_px" value="<?= (int)$row['font_awardee_size_px'] ?>" placeholder="Size">
+                    <input type="color" class="form-control-modern form-control-sm" name="font_awardee_color" value="<?= e($row['font_awardee_color']) ?>">
+                  </div>
+                  
+                  <div class="font-config">
+                    <div class="font-config-title">Seminar Title</div>
+                    <?= fontSelectModern('font_seminar_family',$row['font_seminar_family'],$fontOptions) ?>
+                    <input type="number" min="6" max="200" class="form-control-modern form-control-sm" name="font_seminar_size_px" value="<?= (int)$row['font_seminar_size_px'] ?>" placeholder="Size">
+                    <input type="color" class="form-control-modern form-control-sm" name="font_seminar_color" value="<?= e($row['font_seminar_color']) ?>">
+                  </div>
+                  
+                  <div class="font-config">
+                    <div class="font-config-title">Certificate Number</div>
+                    <?= fontSelectModern('font_number_family',$row['font_number_family'],$fontOptions) ?>
+                    <input type="number" min="6" max="200" class="form-control-modern form-control-sm" name="font_number_size_px" value="<?= (int)$row['font_number_size_px'] ?>" placeholder="Size">
+                    <input type="color" class="form-control-modern form-control-sm" name="font_number_color" value="<?= e($row['font_number_color']) ?>">
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div class="sidebar-card">
+              <div class="sidebar-header">
+                <h3 class="sidebar-title">
+                  <i class="bi bi-crosshair"></i>Positions
+                </h3>
+              </div>
+              <div class="sidebar-body">
+                <div class="help-text mb-3">
+                  <i class="bi bi-info-circle me-1"></i>
+                  Coordinates are percentages relative to the background image. Drag elements on the canvas or enter values manually.
+                </div>
+                
+                <div class="position-grid">
+                  <div class="position-label">Awardee</div>
+                  <input type="number" step="any" class="num-input" name="pos_cert_awardee_name_x" id="pos-awardee-x" value="<?= (float)($row['pos_cert_awardee_name_x'] ?? 0) ?>" placeholder="X%">
+                  <input type="number" step="any" class="num-input" name="pos_cert_awardee_name_y" id="pos-awardee-y" value="<?= (float)($row['pos_cert_awardee_name_y'] ?? 0) ?>" placeholder="Y%">
+                </div>
+                
+                <div class="position-grid">
+                  <div class="position-label">Seminar</div>
+                  <input type="number" step="any" class="num-input" name="pos_seminar_title_x" id="pos-seminar-x" value="<?= (float)($row['pos_seminar_title_x'] ?? 0) ?>" placeholder="X%">
+                  <input type="number" step="any" class="num-input" name="pos_seminar_title_y" id="pos-seminar-y" value="<?= (float)($row['pos_seminar_title_y'] ?? 0) ?>" placeholder="Y%">
+                </div>
+                
+                <div class="position-grid">
+                  <div class="position-label">Number</div>
+                  <input type="number" step="any" class="num-input" name="pos_cert_number_x" id="pos-number-x" value="<?= (float)($row['pos_cert_number_x'] ?? 0) ?>" placeholder="X%">
+                  <input type="number" step="any" class="num-input" name="pos_cert_number_y" id="pos-number-y" value="<?= (float)($row['pos_cert_number_y'] ?? 0) ?>" placeholder="Y%">
+                </div>
+              </div>
+            </div>
+
+            <div class="sidebar-card">
+              <div class="sidebar-header">
+                <h3 class="sidebar-title">
+                  <i class="bi bi-pen"></i>Signatures
+                </h3>
+              </div>
+              <div class="sidebar-body">
+                <?php if (empty($sigs)): ?>
+                  <div class="help-text text-center py-3">
+                    <i class="bi bi-pen me-1"></i>
+                    No signatures added yet. Add signatures when creating the template.
+                  </div>
+                <?php else: ?>
+                  <?php foreach ($sigs as $sg): $sid=(int)$sg['id']; $enabled=(int)($sg['enabled'] ?? 1); ?>
+                    <div class="sig-item">
+                      <div class="sig-header">
+                        <div class="sig-indicator">
+                          <i class="bi bi-pen me-2"></i><?= e($sg['indicator']) ?>
+                        </div>
+                        <div class="switch <?= $enabled ? 'active' : '' ?>" data-target="sig-enabled-<?= $sid ?>">
+                          <div class="switch-thumb"></div>
+                        </div>
+                        <input type="checkbox" class="sig-enabled-toggle" id="sig-enabled-<?= $sid ?>" name="sig_enabled[<?= $sid ?>]" data-id="<?= $sid ?>" <?= $enabled ? 'checked' : '' ?> style="display:none;">
+                      </div>
+                      
+                      <div class="form-group">
+                        <label class="form-label">Role/Title</label>
+                        <input type="text" class="form-control-modern form-control-sm" name="sig_indicator[<?= $sid ?>]" value="<?= e($sg['indicator']) ?>">
+                      </div>
+                      
+                      <div class="form-group">
+                        <label class="form-label">Replace Image</label>
+                        <input type="file" class="form-control-modern form-control-sm" name="sig_file[<?= $sid ?>]" accept="image/png,image/jpeg">
+                        <?php if (!empty($sg['signature_url'])): ?>
+                          <img class="sig-thumb mt-2" src="<?= e(asset_url($sg['signature_url'])) ?>" alt="Current signature">
+                        <?php else: ?>
+                          <div class="help-text mt-1">No image uploaded - using placeholder</div>
+                        <?php endif; ?>
+                      </div>
+                      
+                      <div class="width-slider-container">
+                        <label class="form-label">Width: <span id="sig-width-label-<?= $sid ?>"><?= (float)($sg['width_pct'] ?? 25) ?></span>%</label>
+                        <input type="range" min="5" max="100" step="1" class="width-slider" name="sig_width[<?= $sid ?>]" id="sig-width-<?= $sid ?>" value="<?= (float)($sg['width_pct'] ?? 25) ?>">
+                      </div>
+                      
+                      <input type="hidden" name="sig_pos_x[<?= $sid ?>]" id="sig-pos-x-<?= $sid ?>" value="<?= (float)$sg['pos_x'] ?>">
+                      <input type="hidden" name="sig_pos_y[<?= $sid ?>]" id="sig-pos-y-<?= $sid ?>" value="<?= (float)$sg['pos_y'] ?>">
+                      
+                      <div class="switch-container">
+                        <input type="checkbox" name="sig_remove[<?= $sid ?>]" id="sig-remove-<?= $sid ?>" value="1" style="display:none;">
+                        <label class="switch-label" for="sig-remove-<?= $sid ?>" style="color: #ef4444; cursor: pointer;">
+                          <i class="bi bi-trash me-1"></i>Delete this signature
+                        </label>
+                      </div>
+                    </div>
+                  <?php endforeach; ?>
+                <?php endif; ?>
+              </div>
+            </div>
+
+            <div class="action-buttons">
+              <button class="btn btn-success-modern btn-modern" formnovalidate>
+                <i class="bi bi-check-circle me-2"></i>Save Layout
+              </button>
+              <a href="admin_certificate_settings.php" class="btn btn-outline-modern btn-modern">
+                <i class="bi bi-x-circle me-2"></i>Cancel
+              </a>
+            </div>
+
+          </div>
         </div>
-      </div>
-    </form>
-  <?php endif; ?>
-</div>
+      </form>
+    <?php endif; ?>
+  </div>
 
 <script>
 (function(){
@@ -663,10 +1585,34 @@ body{background:#f8f9fa}
     window.addEventListener('mouseup',function(){dragging=false;document.body.style.userSelect='';});
   }
 
-  // Static placeholders
+  // Static placeholders with enhanced feedback
   makeDraggable(phAwardee, { set: function(x,y){ syncStaticInputs(x,y,null,null,null,null); } });
   makeDraggable(phSeminar, { set: function(x,y){ syncStaticInputs(null,null,x,y,null,null); } });
   makeDraggable(phNumber,  { set: function(x,y){ syncStaticInputs(null,null,null,null,x,y); } });
+
+  // Enhanced dragging feedback  
+  function makeDraggable(el, getSet){
+    var dragging=false,startX=0,startY=0,baseLeft=0,baseTop=0;
+    el.addEventListener('mousedown',function(e){
+      e.preventDefault();dragging=true;startX=e.clientX;startY=e.clientY;
+      baseLeft=parseFloat(el.style.left||'0');baseTop=parseFloat(el.style.top||'0');
+      document.body.style.userSelect='none';
+      el.classList.add('dragging');
+    });
+    window.addEventListener('mousemove',function(e){
+      if(!dragging)return;
+      var dx=e.clientX-startX,dy=e.clientY-startY;
+      var W=bg.clientWidth,H=bg.clientHeight;
+      var newLeft=clamp(baseLeft+dx,0,W),newTop=clamp(baseTop+dy,0,H);
+      el.style.left=newLeft+'px';el.style.top=newTop+'px';
+      var xPct=newLeft/W*100,yPct=newTop/H*100;
+      getSet.set(xPct,yPct);
+    });
+    window.addEventListener('mouseup',function(){
+      if(dragging) el.classList.remove('dragging');
+      dragging=false;document.body.style.userSelect='';
+    });
+  }
 
   // Signature nodes (multiple)
   function placeSignatures(){
@@ -699,13 +1645,32 @@ body{background:#f8f9fa}
   if (inpSeminar)  inpSeminar.addEventListener('input',function(){ phSeminar.textContent=this.value||'{SEMINAR_TITLE}'; });
   if (inpNumber)   inpNumber.addEventListener('input',function(){ phNumber.textContent=this.value||'NC-{YYYY}-{SEQ4}'; });
 
+  // Custom switch functionality
+  document.querySelectorAll('.switch').forEach(function(switchEl) {
+    switchEl.addEventListener('click', function() {
+      var targetId = this.getAttribute('data-target');
+      var checkbox = document.getElementById(targetId);
+      if (checkbox) {
+        checkbox.checked = !checkbox.checked;
+        this.classList.toggle('active', checkbox.checked);
+        checkbox.dispatchEvent(new Event('change'));
+      }
+    });
+  });
+
   // Toggle visibility of placeholders
   var tglAwardee = document.getElementById('toggle-awardee');
   var tglSeminar = document.getElementById('toggle-seminar');
   var tglNumber  = document.getElementById('toggle-number');
-  if (tglAwardee) tglAwardee.addEventListener('change', function(){ phAwardee.style.display = this.checked ? '' : 'none'; });
-  if (tglSeminar) tglSeminar.addEventListener('change', function(){ phSeminar.style.display = this.checked ? '' : 'none'; });
-  if (tglNumber)  tglNumber.addEventListener('change',  function(){ phNumber.style.display  = this.checked ? '' : 'none'; });
+  if (tglAwardee) tglAwardee.addEventListener('change', function(){ 
+    phAwardee.style.display = this.checked ? '' : 'none'; 
+  });
+  if (tglSeminar) tglSeminar.addEventListener('change', function(){ 
+    phSeminar.style.display = this.checked ? '' : 'none'; 
+  });
+  if (tglNumber) tglNumber.addEventListener('change', function(){ 
+    phNumber.style.display = this.checked ? '' : 'none'; 
+  });
 
   // Toggle visibility per signature
   document.querySelectorAll('.sig-enabled-toggle').forEach(function(chk){
@@ -715,6 +1680,41 @@ body{background:#f8f9fa}
       if (el) el.style.display = this.checked ? '' : 'none';
     });
   });
+
+  // Canvas tools functionality
+  var gridToggle = document.getElementById('gridToggle');
+  var zoomFit = document.getElementById('zoomFit');
+  
+  if (gridToggle) {
+    gridToggle.addEventListener('click', function() {
+      this.classList.toggle('active');
+      // Could add grid overlay functionality here
+    });
+  }
+  
+  if (zoomFit) {
+    zoomFit.addEventListener('click', function() {
+      var canvas = document.getElementById('canvas');
+      var wrapper = canvas.parentElement;
+      if (canvas && wrapper) {
+        // Reset any existing transform first
+        canvas.style.transform = 'scale(1)';
+        
+        // Get fresh measurements
+        setTimeout(function() {
+          var wrapperRect = wrapper.getBoundingClientRect();
+          var canvasRect = canvas.getBoundingClientRect();
+          var scale = Math.min(
+            (wrapperRect.width - 80) / canvasRect.width,
+            (wrapperRect.height - 80) / canvasRect.height,
+            1.0
+          );
+          canvas.style.transform = 'scale(' + scale + ')';
+          canvas.style.transformOrigin = 'center center';
+        }, 10);
+      }
+    });
+  }
 
   var resetBtn=document.getElementById('resetBtn');
   if(resetBtn){

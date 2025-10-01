@@ -1,7 +1,7 @@
 <?php
 session_start(); // Make sure session is started at the top of the file
 
-// Add these helper vars right after session_start()
+// Helper vars
 $isLoggedIn = isset($_SESSION['user_id']);
 $userName = $_SESSION['user_name'] ?? 'Account';
 ?>
@@ -14,17 +14,14 @@ $userName = $_SESSION['user_name'] ?? 'Account';
 
   <!-- Bootstrap CSS -->
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/css/bootstrap.min.css" rel="stylesheet">
-  
   <!-- Font Awesome -->
   <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
-  
   <!-- Google Fonts -->
   <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-
   <!-- Custom CSS -->
   <link rel="stylesheet" href="css/styles.css">
-  
-  <>
+
+  <style>
     :root {
       --primary-color: #111e6c;
       --primary-dark: #1116ec;
@@ -279,6 +276,14 @@ $userName = $_SESSION['user_name'] ?? 'Account';
         font-size: 13px;
       }
     }
+
+    /* Loading Overlay (central for all screen sizes) */
+    .loading-overlay { position:fixed; inset:0; display:none; align-items:center; justify-content:center; background:rgba(255,255,255,0.94); backdrop-filter:blur(18px); -webkit-backdrop-filter:blur(18px); z-index:2000; }
+    .loading-overlay.active { display:flex; }
+    .loading-box { background:#ffffff; padding:2rem 2.25rem; border-radius:1.25rem; box-shadow:0 8px 32px rgba(0,0,0,0.12); border:1px solid #e5e7eb; min-width:250px; max-width:320px; }
+    .loading-box h5 { font-size:1.05rem; }
+    @keyframes popIn { from { opacity:0; transform:scale(.9);} to { opacity:1; transform:scale(1);} }
+    .loading-box { animation: popIn .35s ease; }
   </style>
   </head>
   <body>
@@ -343,20 +348,19 @@ $userName = $_SESSION['user_name'] ?? 'Account';
           </ul>
         </div>
 
-        <!-- Loading Overlay only for guests -->
-        <?php if (!$isLoggedIn): ?>
-          <div id="loadingOverlay" class="position-fixed top-0 start-0 w-100 h-100 d-none justify-content-center align-items-center" style="background: rgba(255,255,255,0.98); backdrop-filter: blur(20px); z-index: 9999;">
-            <div class="text-center">
-              <div class="spinner-border text-primary mb-3" role="status" style="width: 3rem; height: 3rem;">
-                <span class="visually-hidden">Loading...</span>
-              </div>
-              <h5 class="text-primary fw-medium">Redirecting...</h5>
-              <p class="text-muted small">Please wait a moment</p>
-            </div>
-          </div>
-        <?php endif; ?>
+        <!-- (Overlay moved below nav) -->
       </div>
     </nav>
+
+    <?php if (!$isLoggedIn): ?>
+    <div id="loadingOverlay" class="loading-overlay d-none" aria-hidden="true" role="alert" aria-live="polite">
+      <div class="loading-box text-center">
+        <div class="spinner-border text-primary mb-3" role="status" aria-hidden="true" style="width:3rem;height:3rem;"></div>
+        <h5 id="loadingOverlayTitle" class="text-primary fw-medium mb-1">Redirecting...</h5>
+        <p id="loadingOverlayMsg" class="text-muted small mb-0">Please wait a moment</p>
+      </div>
+    </div>
+    <?php endif; ?>
 
   <!-- Main Content Section -->
   <main class="content" style="margin-top: 85px;">
@@ -556,22 +560,40 @@ $userName = $_SESSION['user_name'] ?? 'Account';
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/js/bootstrap.min.js"></script>
 
   <script>
-    const loginBtn = document.getElementById('customLoginBtn');
-    const signupBtn = document.getElementById('customSignupBtn');
-    const overlay = document.getElementById('loadingOverlay');
-    function handleRedirect(targetURL) {
-      if (overlay) {
+    (function(){
+      const loginBtn = document.getElementById('customLoginBtn');
+      const signupBtn = document.getElementById('customSignupBtn');
+      const overlay = document.getElementById('loadingOverlay');
+      const titleEl = document.getElementById('loadingOverlayTitle');
+      const msgEl = document.getElementById('loadingOverlayMsg');
+
+      function forceReflow(el){ if(!el) return; void el.offsetHeight; }
+
+      function showOverlay(title='Redirecting...', msg='Please wait a moment') {
+        if (!overlay) return;
+        if (titleEl) titleEl.textContent = title;
+        if (msgEl) msgEl.textContent = msg;
         overlay.classList.remove('d-none');
-        overlay.classList.add('d-flex');
+        overlay.classList.add('active','d-flex'); // d-flex as bootstrap fallback
+        overlay.setAttribute('aria-hidden','false');
+        forceReflow(overlay);
       }
-      setTimeout(() => { window.location = targetURL; }, 800);
-    }
-    if (loginBtn) {
-      loginBtn.addEventListener('click', () => handleRedirect('../Credentials/login.php'));
-    }
-    if (signupBtn) {
-      signupBtn.addEventListener('click', () => handleRedirect('../Credentials/signup.php'));
-    }
+
+      function handleRedirect(targetURL, title, msg) {
+        showOverlay(title, msg);
+        // Use two animation frames to ensure paint before navigation
+        requestAnimationFrame(()=>{
+          setTimeout(()=>{ window.location.href = targetURL; }, 700);
+        });
+      }
+
+      if (loginBtn) {
+        loginBtn.addEventListener('click', (e) => { e.preventDefault(); handleRedirect('../Credentials/login.php','Redirecting to Login...','Please wait while we prepare the page'); });
+      }
+      if (signupBtn) {
+        signupBtn.addEventListener('click', (e) => { e.preventDefault(); handleRedirect('../Credentials/signup.php','Redirecting to Sign Up...','Loading registration form'); });
+      }
+    })();
   </script>
 
 </body>

@@ -123,6 +123,22 @@
     new bootstrap.Toast(t, { delay: 1500 }).show();
   }
 
+  // Create a lightweight redirect overlay (only inserted when needed)
+  function ensureOverlay(){
+    if(document.getElementById('redirectOverlay')) return document.getElementById('redirectOverlay');
+    const div = document.createElement('div');
+    div.id='redirectOverlay';
+    div.className='position-fixed top-0 start-0 w-100 h-100 d-flex flex-column justify-content-center align-items-center';
+    div.style.cssText='background:rgba(255,255,255,0.94);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);z-index:1085;';
+    div.innerHTML = `
+      <div class="text-center p-4 rounded-4 bg-white shadow" style="min-width:260px;max-width:320px;">
+        <div class="spinner-border text-primary mb-3" style="width:3rem;height:3rem;" role="status"></div>
+        <h5 class="fw-bold text-primary mb-1" id="redirTitle">Creating account...</h5>
+        <p class="small text-muted mb-0" id="redirMsg">Please wait a moment</p>
+      </div>`;
+    document.body.appendChild(div); return div;
+  }
+
   form.addEventListener('submit', async (e) => {
     e.preventDefault();
     setMsg('', true);
@@ -146,10 +162,13 @@
       const data = await res.json().catch(() => ({}));
 
       if (data.status === 'success') {
-        showToast('Signup successful. Redirecting…', true);
-        setTimeout(() => {
-          window.location.href = data.redirect || '../dashboard/dashboard.php';
-        }, 1500);
+        // Show redirect overlay guiding user to login
+        const ov = ensureOverlay();
+        const title = ov.querySelector('#redirTitle');
+        const msgEl = ov.querySelector('#redirMsg');
+        if (title) title.textContent = 'Account Created!';
+        if (msgEl) msgEl.textContent = 'Redirecting you to login...';
+        setTimeout(()=>{ window.location.href = data.redirect || 'login.php'; }, 1200);
       } else {
         showToast(data.message || 'Signup failed.', false);
       }

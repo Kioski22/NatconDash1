@@ -64,13 +64,16 @@ unset($_SESSION['toast']);
           <a href="../dashboard/dashboard.php">Back to Dashboard</a>
         </div>
 
-        <!-- Loading Overlay -->
-        <div id="loadingOverlay" class="position-fixed top-0 start-0 w-100 h-100 d-none justify-content-center align-items-center" style="background: rgba(255,255,255,0.95); backdrop-filter: blur(10px); z-index: 9999;">
-          <div class="text-center">
-            <div class="spinner-border text-primary mb-3" role="status" style="width: 3rem; height: 3rem;">
-              <span class="visually-hidden">Loading...</span>
+        <!-- Redirect Overlay (shown only on successful login) -->
+        <div id="loadingOverlay" class="position-fixed top-0 start-0 w-100 h-100 d-none" style="background: rgba(255,255,255,0.94); backdrop-filter: blur(18px); z-index: 9999;">
+          <div class="position-absolute top-50 start-50 translate-middle text-center" style="max-width:340px; width:100%;">
+            <div class="mb-4">
+              <div class="spinner-border text-primary" role="status" style="width:3.5rem;height:3.5rem;">
+                <span class="visually-hidden">Loading...</span>
+              </div>
             </div>
-            <h5 class="text-primary">Redirecting...</h5>
+            <h4 id="redirectTitle" class="fw-bold text-primary mb-2">Logging you in...</h4>
+            <p id="redirectMsg" class="text-muted small mb-0">Please wait while we prepare your dashboard.</p>
           </div>
         </div>
       </form>
@@ -93,6 +96,9 @@ unset($_SESSION['toast']);
 (function(){
   const form = document.getElementById('loginForm');
   const overlay = document.getElementById('loadingOverlay');
+  const redirectTitle = document.getElementById('redirectTitle');
+  const redirectMsg = document.getElementById('redirectMsg');
+  const submitBtn = form.querySelector('button[type="submit"]');
   const toastEl = document.getElementById('toast');
   const toastBody = document.getElementById('toastBody');
   const showToast = (msg, ok=true, delay=1800) => {
@@ -109,8 +115,12 @@ unset($_SESSION['toast']);
 
   form.addEventListener('submit', async (e) => {
     e.preventDefault();
-    overlay.classList.remove('d-none');
-
+    if (submitBtn) {
+      submitBtn.disabled = true;
+      submitBtn.dataset.originalText = submitBtn.textContent;
+      submitBtn.textContent = 'Checking...';
+    }
+    let success = false;
     try {
       const fd = new FormData(form);
       const res = await fetch(form.action, {
@@ -120,23 +130,36 @@ unset($_SESSION['toast']);
         credentials: 'same-origin'
       });
 
-      // If the API did a non-AJAX redirect, follow it
       if (res.redirected) {
-        window.location.href = res.url;
+        // Treat as success redirect (fallback)
+        success = true;
+        overlay.classList.remove('d-none');
+        setTimeout(()=>{ window.location.href = res.url; }, 400);
         return;
       }
 
       const data = await res.json().catch(() => null);
       if (data && data.success) {
-        showToast('Login successful. Redirecting…', true,1000);
-        window.location.href = data.redirect || '../dashboard/dashboard.php';
+        success = true;
+        // Show redirect overlay (no success toast, per requirement)
+        if (redirectTitle) redirectTitle.textContent = 'Login successful!';
+        if (redirectMsg) redirectMsg.textContent = 'Redirecting to your dashboard...';
+        overlay.classList.remove('d-none');
+        // Delay to allow user to perceive success
+        setTimeout(()=>{ window.location.href = data.redirect || '../dashboard/dashboard.php'; }, 900);
       } else {
         showToast((data && data.message) || 'Invalid email or password.', false);
       }
     } catch (err) {
       showToast('Network error. Try again.', false);
     } finally {
-      overlay.classList.add('d-none');
+      if (!success) {
+        overlay.classList.add('d-none');
+        if (submitBtn) {
+          submitBtn.disabled = false;
+          if (submitBtn.dataset.originalText) submitBtn.textContent = submitBtn.dataset.originalText;
+        }
+      }
     }
   });
 })();
