@@ -168,7 +168,7 @@ if (!function_exists('e')) { function e($s){ return htmlspecialchars((string)$s,
       <div class="collapse navbar-collapse" id="navbarNav">
         <ul class="navbar-nav ms-auto align-items-center">
           <li class="nav-item">
-            <a class="nav-link fw-semibold px-3" href="function_rooms.php">< Back to Function Rooms</a>
+            <a class="nav-link fw-semibold px-3" href="dashboard.php">< Back to Dashboard</a>
           </li>
         </ul>
       </div>

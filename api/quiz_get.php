@@ -8,6 +8,10 @@ if (isset($conn) && $conn instanceof mysqli) $db = $conn;
 elseif (isset($mysqli) && $mysqli instanceof mysqli) $db = $mysqli;
 else { http_response_code(500); echo json_encode(['error'=>'DB unavailable']); exit; }
 
+// Enforce authentication before exposing quiz contents
+$user_id = isset($_SESSION['user_id']) ? (int)$_SESSION['user_id'] : 0;
+if ($user_id <= 0) { http_response_code(401); echo json_encode(['error'=>'Login required']); exit; }
+
 $speaker_id = isset($_GET['speaker_id']) ? (int)$_GET['speaker_id'] : 0;
 if ($speaker_id <= 0) { http_response_code(400); echo json_encode(['error'=>'Invalid speaker']); exit; }
 

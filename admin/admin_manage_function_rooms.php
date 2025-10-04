@@ -50,7 +50,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $errors[] = 'Invalid CSRF token.';
     } else {
         $action = $_POST['action'] ?? '';
-        if ($action === 'add') {
+    if ($action === 'add') {
             $name = trim($_POST['name'] ?? '');
             $label = trim($_POST['label'] ?? '');
             $room_number = trim($_POST['room_number'] ?? '');   // NEW
@@ -58,15 +58,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $day_date = trim($_POST['day_date'] ?? '') ?: null;
             $description = trim($_POST['description'] ?? '');
             $day_id = isset($_POST['day_id']) && is_numeric($_POST['day_id']) ? (int)$_POST['day_id'] : null;
+      $program_type = ($_POST['program_type'] ?? 'main') === 'sub' ? 'sub' : 'main'; // NEW
 
             if ($name === '') $errors[] = 'Name is required.';
             if ($room_number === '') $errors[] = 'Room number is required.'; // NEW
             if ($day_number === null) $errors[] = 'Day number is required.';
-            if (empty($errors)) {
-                $stmt = $db->prepare("INSERT INTO function_rooms (name, label, room_number, day_number, day_date, description, day_id) VALUES (?, ?, ?, ?, ?, ?, ?)"); // NEW
+      if (empty($errors)) {
+        $stmt = $db->prepare("INSERT INTO function_rooms (name, label, room_number, day_number, day_date, description, day_id, program_type) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"); // NEW
                 if ($stmt) {
                     if ($day_id !== null && $day_id <= 0) $day_id = null;
-                    $stmt->bind_param('sssissi', $name, $label, $room_number, $day_number, $day_date, $description, $day_id); // NEW
+          $stmt->bind_param('sssissis', $name, $label, $room_number, $day_number, $day_date, $description, $day_id, $program_type); // NEW
                     if ($stmt->execute()) {
                         $success = 'Function room added.';
                     } else {
@@ -77,7 +78,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $errors[] = 'DB prepare failed: ' . $db->error;
                 }
             }
-        } elseif ($action === 'update') {
+    } elseif ($action === 'update') {
             $id = isset($_POST['id']) ? (int)$_POST['id'] : 0;
             $name = trim($_POST['name'] ?? '');
             $label = trim($_POST['label'] ?? '');
@@ -86,17 +87,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $day_date = trim($_POST['day_date'] ?? '') ?: null;
             $description = trim($_POST['description'] ?? '');
             $day_id = isset($_POST['day_id']) && is_numeric($_POST['day_id']) ? (int)$_POST['day_id'] : null;
+      $program_type = ($_POST['program_type'] ?? 'main') === 'sub' ? 'sub' : 'main'; // NEW
 
             if ($id <= 0) $errors[] = 'Invalid room id.';
             if ($name === '') $errors[] = 'Name is required.';
             if ($room_number === '') $errors[] = 'Room number is required.'; // NEW
             if ($day_number === null) $errors[] = 'Day number is required.';
 
-            if (empty($errors)) {
-                $stmt = $db->prepare("UPDATE function_rooms SET name = ?, label = ?, room_number = ?, day_number = ?, day_date = ?, description = ?, day_id = ? WHERE id = ? LIMIT 1"); // NEW
+      if (empty($errors)) {
+        $stmt = $db->prepare("UPDATE function_rooms SET name = ?, label = ?, room_number = ?, day_number = ?, day_date = ?, description = ?, day_id = ?, program_type = ? WHERE id = ? LIMIT 1"); // NEW
                 if ($stmt) {
                     if ($day_id !== null && $day_id <= 0) $day_id = null;
-                    $stmt->bind_param('sssissii', $name, $label, $room_number, $day_number, $day_date, $description, $day_id, $id); // NEW
+          $stmt->bind_param('sssissimi', $name, $label, $room_number, $day_number, $day_date, $description, $day_id, $program_type, $id); // NEW
                     if ($stmt->execute()) {
                         $success = 'Function room updated.';
                     } else {
@@ -146,7 +148,14 @@ if ($messages) {
 
 // fetch rooms list
 $rooms = [];
-$res = $db->query("SELECT id, name, label, room_number, day_number, day_date, description, day_id FROM function_rooms ORDER BY day_number ASC, id ASC"); // NEW
+// Ensure program_type column exists
+$cRes = $db->query("SHOW COLUMNS FROM function_rooms LIKE 'program_type'");
+if ($cRes && $cRes->num_rows === 0) {
+  @ $db->query("ALTER TABLE function_rooms ADD COLUMN program_type ENUM('main','sub') NOT NULL DEFAULT 'main'");
+}
+$cRes && $cRes->close();
+
+$res = $db->query("SELECT id, name, label, room_number, day_number, day_date, description, day_id, program_type FROM function_rooms ORDER BY day_number ASC, id ASC"); // NEW
 if ($res) {
     while ($r = $res->fetch_assoc()) $rooms[] = $r;
 }
@@ -155,7 +164,7 @@ if ($res) {
 $editRoom = null;
 if (isset($_GET['edit']) && is_numeric($_GET['edit'])) {
     $eid = (int)$_GET['edit'];
-    $stmt = $db->prepare("SELECT id, name, label, room_number, day_number, day_date, description, day_id FROM function_rooms WHERE id = ? LIMIT 1"); // NEW
+  $stmt = $db->prepare("SELECT id, name, label, room_number, day_number, day_date, description, day_id, program_type FROM function_rooms WHERE id = ? LIMIT 1"); // NEW
     if ($stmt) {
         $stmt->bind_param('i', $eid);
         $stmt->execute();
@@ -203,7 +212,8 @@ if (isset($_GET['edit']) && is_numeric($_GET['edit'])) {
                   <th>#</th>
                   <th>Name</th>
                   <th>Label</th>
-                  <th>Room No.</th>  <!-- NEW -->
+                  <th>Room No.</th>
+                  <th>Program</th>
                   <th>Day</th>
                   <th>Date</th>
                   <th>Linked Day</th>
@@ -217,6 +227,7 @@ if (isset($_GET['edit']) && is_numeric($_GET['edit'])) {
                     <td><?= e($r['name']) ?></td>
                     <td><?= e($r['label']) ?></td>
                     <td><?= e($r['room_number']) ?></td> <!-- NEW -->
+                    <td><span class="badge bg-<?php echo ($r['program_type']??'main')==='sub'?'warning text-dark':'primary'; ?>"><?= e(strtoupper($r['program_type'] ?? 'main')) ?></span></td>
                     <td><?= e($r['day_number']) ?></td>
                     <td><?= e($r['day_date']) ?></td>
                     <td><?= $r['day_id'] ? ('#'.(int)$r['day_id']) : '-' ?></td>
@@ -288,6 +299,14 @@ if (isset($_GET['edit']) && is_numeric($_GET['edit'])) {
                 <textarea name="description" class="form-control" rows="3"><?= e($editRoom['description']) ?></textarea>
               </div>
 
+              <div class="mb-3">
+                <label class="form-label">Program Type</label>
+                <select name="program_type" class="form-select" required>
+                  <option value="main" <?= ($editRoom['program_type'] ?? 'main')==='main'?'selected':'' ?>>Main Program</option>
+                  <option value="sub" <?= ($editRoom['program_type'] ?? 'main')==='sub'?'selected':'' ?>>Sub Program</option>
+                </select>
+              </div>
+
               <div class="d-grid">
                 <button class="btn btn-primary">Update Room</button>
                 <a href="admin_manage_function_rooms.php" class="btn btn-link mt-2">Cancel</a>
@@ -336,6 +355,14 @@ if (isset($_GET['edit']) && is_numeric($_GET['edit'])) {
               <div class="mb-2">
                 <label class="form-label">Description</label>
                 <textarea name="description" class="form-control" rows="3"></textarea>
+              </div>
+
+              <div class="mb-3">
+                <label class="form-label">Program Type</label>
+                <select name="program_type" class="form-select" required>
+                  <option value="main" selected>Main Program</option>
+                  <option value="sub">Sub Program</option>
+                </select>
               </div>
 
               <div class="d-grid">

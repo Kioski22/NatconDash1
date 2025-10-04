@@ -338,7 +338,7 @@ function fmt_time($t){ if (!$t) return ''; $dt=@date_create($t); return $dt?date
       <div class="collapse navbar-collapse" id="navbarNav">
         <ul class="navbar-nav ms-auto align-items-center">
           <li class="nav-item">
-            <a class="nav-link fw-semibold d-md-block px-3" href="day.php?day=<?= urlencode((string)$s['day_number']?:'1') ?>">&lt; Back to Day</a></div>
+            <a class="nav-link fw-semibold d-md-block px-3" href="programs.php">&lt; Back to Programs</a></div>
           </li>
         </ul>
       </div>

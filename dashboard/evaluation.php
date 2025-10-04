@@ -17,11 +17,11 @@ $speaker_id = isset($_GET['speaker_id']) ? (int)$_GET['speaker_id'] : 0;
 if ($speaker_id <= 0) { http_response_code(400); echo "Invalid speaker."; exit; }
 
 // Fetch speaker
-$spk = ['name'=>'Speaker','title'=>''];
-if ($st = $db->prepare("SELECT name, title FROM speakers WHERE id = ? LIMIT 1")) {
+$spk = ['name'=>'Speaker','title'=>'','program_type'=>''];
+if ($st = $db->prepare("SELECT name, title, program_type FROM speakers WHERE id = ? LIMIT 1")) {
   $st->bind_param('i', $speaker_id);
   $st->execute();
-  $st->bind_result($spk['name'], $spk['title']);
+  $st->bind_result($spk['name'], $spk['title'], $spk['program_type']);
   $st->fetch(); $st->close();
 }
 ?>
@@ -32,11 +32,11 @@ if ($st = $db->prepare("SELECT name, title FROM speakers WHERE id = ? LIMIT 1"))
   <title>Speaker Evaluation — <?= e($spk['name']) ?></title>
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
-  <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;700&display=swap" rel="stylesheet">
   <style>
     :root{
-      --gf-primary:#673ab7;      /* Google Forms purple */
-      --gf-primary-d:#5a31a3;
+      --gf-primary:#111e6c;      /* Google Forms purple */
+      --gf-primary-d:#111e6c;
       --gf-bg:#f1f3f4;
       --gf-card:#ffffff;
       --gf-text:#202124;
@@ -46,16 +46,16 @@ if ($st = $db->prepare("SELECT name, title FROM speakers WHERE id = ? LIMIT 1"))
       --gf-chip-active:#e8def8;
       --gf-danger:#d93025;
     }
-    body.gf-body{ background:var(--gf-bg); color:var(--gf-text); font-family:Roboto, system-ui, -apple-system, Segoe UI, Arial, sans-serif; }
+    body.gf-body{ background:var(--gf-bg); color:var(--gf-text); font-family:'Poppins';}
     .gf-header{
-      background:linear-gradient(135deg, var(--gf-primary), #7e57c2);
+      background:linear-gradient(var(--gf-primary));
       color:#fff; min-height:160px; display:flex; align-items:flex-end;
     }
     .gf-header .inner{ width:100%; max-width:720px; margin:0 auto; padding:24px 16px; }
     .gf-header .back-link{ color:#fff; opacity:.9; text-decoration:none; }
     .gf-header .back-link:hover{ opacity:1; text-decoration:underline; }
 
-    .gf-wrap{ max-width:720px; margin:-64px auto 40px; padding:0 16px; }
+    .gf-wrap{ max-width:720px; margin:-64px auto 40px; padding:0 16px; padding-top:70px;}
     .gf-card{
       background:var(--gf-card);
       border-radius:8px;
@@ -104,7 +104,8 @@ if ($st = $db->prepare("SELECT name, title FROM speakers WHERE id = ? LIMIT 1"))
 <body class="gf-body">
   <div class="gf-header">
     <div class="inner">
-      <a class="back-link small" href="speaker_form.php?id=<?= (int)$speaker_id ?>">Back to session</a>
+  <?php $isSub = (isset($_GET['sub']) && $_GET['sub']=='1') || strcasecmp($spk['program_type'],'sub')===0; ?>
+  <a class="back-link small" href="<?= $isSub ? 'sub_speaker_form.php' : 'speaker_form.php' ?>?id=<?= (int)$speaker_id ?>">&lt; Back to session</a>
       <h1 class="mt-2 mb-0">Speaker Evaluation</h1>
       <p class="mb-0"><?= e($spk['name']) ?><?= $spk['title'] ? ' — ' . e($spk['title']) : '' ?></p>
     </div>
@@ -114,7 +115,7 @@ if ($st = $db->prepare("SELECT name, title FROM speakers WHERE id = ? LIMIT 1"))
     <div id="alert" class="alert d-none gf-alert" role="alert"></div>
 
     <!-- Intro card (like Google Forms header card) -->
-    <div class="gf-card">
+    <div class="gf-card mt-5">
       <div class="section">
         <div class="gf-title">Session Feedback</div>
         <p class="gf-sub">Please rate the speaker and share any comments to help us improve.</p>
@@ -154,7 +155,7 @@ if ($st = $db->prepare("SELECT name, title FROM speakers WHERE id = ? LIMIT 1"))
 
         <div class="gf-actions">
           <button class="btn btn-primary gf" type="submit" id="submitBtn">Submit</button>
-          <a class="btn btn-light" href="speaker_form.php?id=<?= (int)$speaker_id ?>">Cancel</a>
+          <a class="btn btn-light" href="<?= $isSub ? 'sub_speaker_form.php' : 'speaker_form.php' ?>?id=<?= (int)$speaker_id ?>">Cancel</a>
         </div>
       </form>
     </div>

@@ -277,6 +277,59 @@ $userName = $_SESSION['user_name'] ?? 'Account';
       }
     }
 
+    /* Hero Section Mobile Optimization */
+    #hero-section {
+      min-height: 100vh;
+      min-height: 100dvh; /* Dynamic viewport height for mobile browsers */
+    }
+
+    /* Ensure hero content is properly centered on mobile */
+    @media (max-width: 768px) {
+      #hero-section {
+        min-height: 100vh;
+        min-height: 100svh; /* Small viewport height for mobile */
+        display: flex;
+        align-items: center;
+      }
+      
+      #hero-section .container {
+        width: 100%;
+        padding-left: 1rem;
+        padding-right: 1rem;
+      }
+      
+      #hero-section .row {
+        min-height: 100vh;
+        min-height: 100svh;
+      }
+      
+      #hero-section h1 {
+        font-size: 2.5rem;
+        line-height: 1.2;
+      }
+      
+      #hero-section .lead {
+        font-size: 1rem;
+        margin-bottom: 2rem !important;
+      }
+      
+      #hero-section .btn {
+        font-size: 0.9rem;
+        padding: 0.75rem 2rem;
+      }
+    }
+
+    @media (max-width: 576px) {
+      #hero-section h1 {
+        font-size: 2rem;
+      }
+      
+      #hero-section .btn {
+        font-size: 0.85rem;
+        padding: 0.7rem 1.5rem;
+      }
+    }
+
     /* Loading Overlay (central for all screen sizes) */
     .loading-overlay { position:fixed; inset:0; display:none; align-items:center; justify-content:center; background:rgba(255,255,255,0.94); backdrop-filter:blur(18px); -webkit-backdrop-filter:blur(18px); z-index:2000; }
     .loading-overlay.active { display:flex; }
@@ -329,7 +382,7 @@ $userName = $_SESSION['user_name'] ?? 'Account';
                   </button>
                   <ul class="dropdown-menu dropdown-menu-end shadow">
                     <li><a class="dropdown-item" href="dashboard.php"><i class="fas fa-home me-2 text-primary"></i>Dashboard</a></li>
-                    <li><a class="dropdown-item" href="function_rooms.php"><i class="fas fa-door-open me-2 text-primary"></i>Function Room</a></li>
+                    <li><a class="dropdown-item" href="programs.php"><i class="fas fa-calendar-alt me-2 text-primary"></i>Programs</a></li>
                     <li><a class="dropdown-item" href="../Credentials/forgot_password.php"><i class="fas fa-key me-2 text-primary"></i>Change Password</a></li>
                     <li><hr class="dropdown-divider"></li>
                     <li><a class="dropdown-item text-danger" href="../Credentials/logout.php"><i class="fas fa-sign-out-alt me-2"></i>Logout</a></li>
@@ -414,7 +467,7 @@ $userName = $_SESSION['user_name'] ?? 'Account';
                 and comprehensive evaluation systems designed for modern conventions.
               </p>
               <div class="d-flex flex-column flex-sm-row gap-3">
-                <a href="function_rooms.php" class="btn btn-warning btn-lg rounded-pill px-3 py-3 fs-6 fw-medium text-black">
+                <a href="programs.php" class="btn btn-warning btn-lg rounded-pill px-3 py-3 fs-6 fw-medium text-black">
                   <i class="fas fa-door-open me-2"></i>Enter Function Room
                 </a>
                 <a href="#" class="btn btn-outline-secondary btn-lg rounded-pill px-3 py-3 fs-6 fw-medium">
@@ -505,8 +558,8 @@ $userName = $_SESSION['user_name'] ?? 'Account';
                 </a>
               </li>
               <li class="mb-2">
-                <a href="function_rooms.php" class="text-black text-decoration-none d-flex align-items-center hover-link">
-                  <i class="fas fa-chevron-right me-2 small" style="color: #000e6c"></i>Function Room
+                <a href="programs.php" class="text-black text-decoration-none d-flex align-items-center hover-link">
+                  <i class="fas fa-chevron-right me-2 small" style="color: #000e6c"></i>Programs
                 </a>
               </li>
             </ul>
@@ -514,18 +567,18 @@ $userName = $_SESSION['user_name'] ?? 'Account';
           <div class="col-md-6">
             <h6 class="fw-bold mb-3 text-black">Connect With Us</h6>
             <div class="d-flex gap-3 mb-4">
-              <a href="https://www.facebook.com/psmeinc" class="fs-5 hover-link" style="color: #000e6c">
-                <i class="fab fa-facebook"></i>
+              <ul class="list-unstyled">
+                <li>
+                  <a href="https://www.facebook.com/psmeinc" class="fs-5 hover-link text-decoration-none" style="color: #000e6c">
+                <i class="fab fa-facebook"></i> <span class="small align-items-center">PSME Official</span>
               </a>
-              <a href="#" class="fs-5 hover-link" style="color: #000e6c">
-                <i class="fab fa-twitter"></i>
+            </li>
+              <li>
+                <a href="https://www.facebook.com/natconpsme" class="fs-5 hover-link text-decoration-none" style="color: #000e6c">
+                <i class="fab fa-facebook"></i> <span class="small">PSME NatCon</span>
               </a>
-              <a href="#" class="fs-5 hover-link" style="color: #000e6c">
-                <i class="fab fa-linkedin"></i>
-              </a>
-              <a href="#" class="fs-5 hover-link" style="color: #000e6c">
-                <i class="fab fa-instagram"></i>
-              </a>
+            </li>
+              </ul>
             </div>
             <div class="bg-secondary bg-opacity-25 rounded-custom p-3 border border-secondary border-opacity-50">
               <h6 class="fw-bold mb-2 text-black small">Stay Updated</h6>

@@ -8,6 +8,16 @@ elseif (isset($mysqli) && $mysqli instanceof mysqli) $db = $mysqli;
 else { $db = null; }
 if (!($db instanceof mysqli)) { http_response_code(500); echo "DB unavailable"; exit; }
 
+// Require login before accessing the quiz UI (evaluation already enforced similarly)
+$user_id = isset($_SESSION['user_id']) ? (int)$_SESSION['user_id'] : 0;
+if ($user_id <= 0) {
+  // Optional: remember intended page
+  $_SESSION['intended_url'] = $_SERVER['REQUEST_URI'] ?? 'dashboard.php';
+  $_SESSION['login_notice'] = 'Please log in to take the quiz.';
+  header('Location: ../Credentials/login.php');
+  exit;
+}
+
 // helpers
 if (!function_exists('e')) {
   function e($s){ return htmlspecialchars((string)$s, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8'); }
@@ -38,15 +48,15 @@ if ($st = $db->prepare("SELECT name, title FROM speakers WHERE id = ? LIMIT 1"))
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
   <style>
     :root {
-      --primary: #4f46e5;
-      --primary-light: #8b5cf6;
-      --success: #10b981;
+      --primary: #111e6c;
+      --primary-light: #1116ec;
+      --success: #09ff00ff;
       --warning: #f59e0b;
       --danger: #ef4444;
       --info: #06b6d4;
       --dark: #1e293b;
       --light: #f8fafc;
-      --quiz-gradient: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      --quiz-gradient: linear-gradient(135deg, #111e6c 0%, #6567d3ff 100%);
       --card-shadow: 0 20px 40px -10px rgba(0, 0, 0, 0.15);
       --border-radius: 20px;
     }
@@ -99,7 +109,7 @@ if ($st = $db->prepare("SELECT name, title FROM speakers WHERE id = ? LIMIT 1"))
     .back-button {
       background: rgba(255, 255, 255, 0.2);
       color: var(--dark);
-      border: 2px solid rgba(255, 255, 255, 0.3);
+      border: 2px solid #00000060;
       border-radius: 15px;
       padding: 8px 20px;
       font-weight: 600;
@@ -550,7 +560,7 @@ if ($st = $db->prepare("SELECT name, title FROM speakers WHERE id = ? LIMIT 1"))
       </div>
       <h2 class="result-title">Quiz Completed!</h2>
       <div class="result-score" id="resultText">You scored 0 out of 0</div>
-      <p class="mb-0">Thank you for participating in this quiz!</p>
+      <p class="mb-0 text-white">Thank you for participating in this quiz!</p>
     </div>
   </div>
 

@@ -24,7 +24,7 @@ $preselectSpeakerId = isset($_GET['speaker_id']) && is_numeric($_GET['speaker_id
 // fetch speakers for dropdown (with room/day context)
 $speakers = [];
 $q = $db->query("
-  SELECT s.id, s.name, s.title,
+  SELECT s.id, s.name, s.title, s.program_type,
          fr.id AS room_id, fr.name AS room_name,
          fd.id AS day_id, fd.label AS day_label, fd.day_date
   FROM speakers s
@@ -190,7 +190,7 @@ if (isset($_GET['edit']) && is_numeric($_GET['edit'])) {
 // list quizzes
 $quizzes = [];
 $qr = $db->query("
-  SELECT q.*, s.name AS speaker_name, s.title AS speaker_title,
+  SELECT q.*, s.name AS speaker_name, s.title AS speaker_title, s.program_type,
          fr.name AS room_name, fd.label AS day_label
   FROM quizzes q
   JOIN speakers s ON s.id = q.speaker_id
@@ -555,6 +555,9 @@ function pretty_count($jsonStr) {
       font-weight: 600;
     }
 
+    .badge-prog-main{background:rgba(16,185,129,0.15);color:#047857;border:1px solid rgba(16,185,129,0.3);padding:2px 8px;border-radius:14px;font-size:.65rem;font-weight:600;letter-spacing:.5px;text-transform:uppercase;}
+.badge-prog-sub{background:rgba(245,158,11,0.15);color:#92400e;border:1px solid rgba(245,158,11,0.35);padding:2px 8px;border-radius:14px;font-size:.65rem;font-weight:600;letter-spacing:.5px;text-transform:uppercase;}
+
     /* Alerts */
     .alert {
       border-radius: var(--border-radius);
@@ -703,12 +706,19 @@ function pretty_count($jsonStr) {
                   </tr>
                 </thead>
                 <tbody>
-                  <?php foreach ($quizzes as $q): ?>
+                  <?php foreach ($quizzes as $q): $ptype = strtolower($q['program_type'] ?? 'main'); ?>
                     <tr>
                       <td><span class="badge bg-light text-dark"><?= (int)$q['id'] ?></span></td>
                       <td>
-                        <div class="fw-bold"><?= e($q['speaker_name']) ?></div>
-                        <div class="text-muted small"><?= e($q['speaker_title']) ?></div>
+                        <div class="d-flex flex-column align-items-center gap-1">
+                          <div class="fw-bold text-nowrap"><?= e($q['speaker_name']) ?></div>
+                          <div class="text-muted small text-center" style="max-width:140px;white-space:normal;line-height:1.1;">
+                            <?= e($q['speaker_title']) ?>
+                          </div>
+                          <div>
+                            <span class="<?= $ptype==='sub' ? 'badge-prog-sub':'badge-prog-main' ?>"><?= $ptype==='sub' ? 'Sub Program':'Main Program' ?></span>
+                          </div>
+                        </div>
                       </td>
                       <td><?= e($q['day_label'] ?: '-') ?></td>
                       <td><?= e($q['room_name'] ?: '-') ?></td>
@@ -773,11 +783,9 @@ function pretty_count($jsonStr) {
             </label>
             <select name="speaker_id" class="form-select" required>
               <option value="">-- Choose Speaker --</option>
-              <?php foreach ($speakers as $sp): ?>
+              <?php foreach ($speakers as $sp): $ptype = strtolower($sp['program_type'] ?? 'main'); $pLabel = $ptype==='sub' ? 'Sub Program' : 'Main Program'; ?>
                 <option value="<?= (int)$sp['id'] ?>" <?= (($edit && (int)$edit['speaker_id'] === (int)$sp['id']) || $preselectSpeakerId === (int)$sp['id']) ? 'selected' : '' ?>>
-                  <?= e($sp['name']) ?>
-                  <?= $sp['day_label'] ? ' — '.e($sp['day_label']) : '' ?>
-                  <?= $sp['room_name'] ? ' — '.e($sp['room_name']) : '' ?>
+                  [<?= $pLabel ?>] <?= e($sp['name']) ?><?= $sp['day_label'] ? ' — '.e($sp['day_label']) : '' ?><?= $sp['room_name'] ? ' — '.e($sp['room_name']) : '' ?>
                 </option>
               <?php endforeach; ?>
             </select>

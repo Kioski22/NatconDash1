@@ -2,6 +2,9 @@
 session_start();
 $toast = $_SESSION['toast'] ?? null;
 unset($_SESSION['toast']);
+$loginNotice = $_SESSION['login_notice'] ?? null; // set by protected pages
+unset($_SESSION['login_notice']);
+$intended = $_SESSION['intended_url'] ?? null; // keep until after successful login
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -43,6 +46,10 @@ unset($_SESSION['toast']);
     <div class="login-form">
       <form id="loginForm" method="post" action="../api/api_login.php" novalidate>
         <h2 class="fw-bold">LOGIN</h2>
+
+        <?php if ($loginNotice): ?>
+          <div class="alert alert-info py-2 small" role="alert" style="border-radius:10px;"><?= htmlspecialchars($loginNotice, ENT_QUOTES|ENT_SUBSTITUTE,'UTF-8') ?></div>
+        <?php endif; ?>
 
         <label for="email">Email</label>
         <input type="email" id="email" name="email" placeholder="Enter your email" required />
@@ -143,10 +150,12 @@ unset($_SESSION['toast']);
         success = true;
         // Show redirect overlay (no success toast, per requirement)
         if (redirectTitle) redirectTitle.textContent = 'Login successful!';
-        if (redirectMsg) redirectMsg.textContent = 'Redirecting to your dashboard...';
+        if (redirectMsg) redirectMsg.textContent = 'Redirecting...';
         overlay.classList.remove('d-none');
-        // Delay to allow user to perceive success
-        setTimeout(()=>{ window.location.href = data.redirect || '../dashboard/dashboard.php'; }, 900);
+        // If intended url stored in session (PHP side), we need to fetch it.
+        // We can't read PHP session directly here; create a lightweight endpoint or embed via data attribute.
+        // Simpler: server will echo intended into a JS variable below.
+        setTimeout(()=>{ window.location.href = window.__INTENDED_URL__ || data.redirect || '../dashboard/dashboard.php'; }, 700);
       } else {
         showToast((data && data.message) || 'Invalid email or password.', false);
       }
@@ -163,6 +172,8 @@ unset($_SESSION['toast']);
     }
   });
 })();
+// Inject intended URL from PHP session (if any)
+window.__INTENDED_URL__ = <?php echo json_encode($intended); ?>;
 </script>
 </body>
 </html>

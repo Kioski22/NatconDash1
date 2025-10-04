@@ -25,8 +25,8 @@ $userName = $_SESSION['user_name'] ?? 'Account';
   
   <style>
     :root {
-      --primary-color: #000e6c;
-      --primary-dark: #0006ec;
+      --primary-color: #111e6c;
+      --primary-dark: #1116ec;
       --primary-light: #dbeafe;
       --secondary-color: #e27900ff;
       --secondary-dark: #ce6e00ff;
@@ -470,7 +470,7 @@ $userName = $_SESSION['user_name'] ?? 'Account';
                 </button>
                 <ul class="dropdown-menu dropdown-menu-end shadow">
                   <li><a class="dropdown-item" href="dashboard.php"><i class="fas fa-home me-2 text-primary"></i>Dashboard</a></li>
-                  <li><a class="dropdown-item" href="function_rooms.php"><i class="fas fa-door-open me-2 text-primary"></i>Function Room</a></li>
+                  <li><a class="dropdown-item" href="programs.php"><i class="fas fa-calendar-alt me-2 text-primary"></i>Programs</a></li>
                   <li><a class="dropdown-item" href="../Credentials/forgot_password.php"><i class="fas fa-key me-2 text-primary"></i>Change Password</a></li>
                   <li><hr class="dropdown-divider"></li>
                   <li><a class="dropdown-item text-danger" href="../Credentials/logout.php"><i class="fas fa-sign-out-alt me-2"></i>Logout</a></li>
@@ -641,8 +641,8 @@ $userName = $_SESSION['user_name'] ?? 'Account';
                 </a>
               </li>
               <li class="mb-2">
-                <a href="function_rooms.php" class="text-black text-decoration-none d-flex align-items-center hover-link">
-                  <i class="fas fa-chevron-right me-2 small" style="color: #000e6c"></i>Function Room
+                <a href="programs.php" class="text-black text-decoration-none d-flex align-items-center hover-link">
+                  <i class="fas fa-chevron-right me-2 small" style="color: #000e6c"></i>Programs
                 </a>
               </li>
             </ul>
@@ -650,18 +650,18 @@ $userName = $_SESSION['user_name'] ?? 'Account';
           <div class="col-md-6">
             <h6 class="fw-bold mb-3 text-black">Connect With Us</h6>
             <div class="d-flex gap-3 mb-4">
-              <a href="https://www.facebook.com/psmeinc" class="fs-5 hover-link" style="color: #000e6c">
-                <i class="fab fa-facebook"></i>
+              <ul class="list-unstyled">
+                <li>
+                  <a href="https://www.facebook.com/psmeinc" class="fs-5 hover-link text-decoration-none" style="color: #000e6c">
+                <i class="fab fa-facebook"></i> <span class="small align-items-center">PSME Official</span>
               </a>
-              <a href="#" class="fs-5 hover-link" style="color: #000e6c">
-                <i class="fab fa-twitter"></i>
+            </li>
+              <li>
+                <a href="https://www.facebook.com/natconpsme" class="fs-5 hover-link text-decoration-none" style="color: #000e6c">
+                <i class="fab fa-facebook"></i> <span class="small">PSME NatCon</span>
               </a>
-              <a href="#" class="fs-5 hover-link" style="color: #000e6c">
-                <i class="fab fa-linkedin"></i>
-              </a>
-              <a href="#" class="fs-5 hover-link" style="color: #000e6c">
-                <i class="fab fa-instagram"></i>
-              </a>
+            </li>
+              </ul>
             </div>
             <div class="bg-secondary bg-opacity-25 rounded-custom p-3 border border-secondary border-opacity-50">
               <h6 class="fw-bold mb-2 text-black small">Stay Updated</h6>

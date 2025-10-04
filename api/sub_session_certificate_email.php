@@ -1,0 +1,71 @@
+<?php
+// Email an already generated sub session certificate (per speaker & user)
+// POST JSON { speaker_id: <id> }
+session_start();
+header('Content-Type: application/json; charset=utf-8');
+require_once __DIR__ . '/../db.php';
+require_once __DIR__ . '/../vendor/autoload.php';
+use PHPMailer\PHPMailer\PHPMailer; use PHPMailer\PHPMailer\Exception;
+
+if (!isset($_SESSION['user_id']) || (int)$_SESSION['user_id'] <= 0) { http_response_code(401); echo json_encode(['ok'=>false,'error'=>'Not authenticated']); exit; }
+$user_id = (int)$_SESSION['user_id'];
+
+// Normalize DB
+if (isset($conn) && $conn instanceof mysqli) { $db = $conn; }
+elseif (isset($mysqli) && $mysqli instanceof mysqli) { $db = $mysqli; }
+else { http_response_code(500); echo json_encode(['ok'=>false,'error'=>'DB unavailable']); exit; }
+
+// Input
+$raw = file_get_contents('php://input');
+$data = json_decode($raw,true);
+$speaker_id = isset($data['speaker_id']) ? (int)$data['speaker_id'] : 0;
+if ($speaker_id <= 0) { http_response_code(400); echo json_encode(['ok'=>false,'error'=>'Invalid speaker']); exit; }
+
+// Ensure certificate exists
+$file_path = null; $speaker_name='';
+if ($st = $db->prepare('SELECT s.name, c.file_path FROM sub_session_certificates c JOIN speakers s ON s.id = c.speaker_id WHERE c.user_id=? AND c.speaker_id=? LIMIT 1')) {
+  $st->bind_param('ii',$user_id,$speaker_id); $st->execute(); $st->bind_result($speaker_name,$file_path); $st->fetch(); $st->close();
+}
+if (!$file_path || !is_file(__DIR__.'/../'.$file_path)) { http_response_code(404); echo json_encode(['ok'=>false,'error'=>'Certificate not generated yet']); exit; }
+$abs_path = realpath(__DIR__.'/../'.$file_path);
+
+// Fetch user
+$email=''; $displayName='Participant';
+if ($st = $db->prepare('SELECT email,name FROM users WHERE id=? LIMIT 1')) { $st->bind_param('i',$user_id); $st->execute(); $st->bind_result($email,$displayName); $st->fetch(); $st->close(); }
+if (!$email) { http_response_code(400); echo json_encode(['ok'=>false,'error'=>'User email missing']); exit; }
+
+// Mail config helper
+$get = fn($p,$f='') => getenv($p) ?: ($f ? getenv($f) : '');
+$cfg = [
+  'host'=>$get('MAIL_HOST','SMTP_HOST'), 'user'=>$get('MAIL_USERNAME','SMTP_USER'), 'pass'=>$get('MAIL_PASSWORD','SMTP_PASS'),
+  'port'=>(int)($get('MAIL_PORT','SMTP_PORT') ?: 587), 'from_addr'=>$get('MAIL_FROM_ADDRESS','SMTP_FROM') ?: 'noreply@example.com',
+  'from_name'=>$get('MAIL_FROM_NAME','SMTP_FROM_NAME') ?: 'Natcon Dashboard', 'enc'=>strtolower($get('MAIL_ENCRYPTION','SMTP_SECURE') ?: 'tls'),
+  'debug'=>(int)(getenv('MAIL_DEBUG') ?: 0), 'allow_alias'=>(int)(getenv('MAIL_ALLOW_ALIAS') ?: getenv('SMTP_ALLOW_ALIAS') ?: 0)
+];
+if ($cfg['host']===''||$cfg['user']===''||$cfg['pass']==='') { http_response_code(500); echo json_encode(['ok'=>false,'error'=>'Mail server not configured']); exit; }
+
+$mail = new PHPMailer(true); $debugBuffer=''; $appEnv=strtolower(getenv('APP_ENV') ?: ''); $forceDebug = ($cfg['debug']>0)||$appEnv==='local';
+try {
+  $mail->isSMTP(); $mail->Host=$cfg['host']; $mail->SMTPAuth=true; $mail->Username=$cfg['user']; $mail->Password=$cfg['pass'];
+  if (in_array($cfg['enc'],['tls','starttls'],true)) { $mail->SMTPSecure=PHPMailer::ENCRYPTION_STARTTLS; }
+  elseif (in_array($cfg['enc'],['ssl','smtps'],true)) { $mail->SMTPSecure=PHPMailer::ENCRYPTION_SMTPS; if ($cfg['port']===587) $cfg['port']=465; }
+  elseif ($cfg['enc']==='none'||$cfg['enc']==='off') { $mail->SMTPSecure=false; }
+  else { $mail->SMTPSecure=PHPMailer::ENCRYPTION_STARTTLS; }
+  $mail->Port=$cfg['port'];
+  if ($forceDebug) { $mail->SMTPDebug=2; $mail->Debugoutput=function($str,$level) use (&$debugBuffer){ $debugBuffer.="[L$level] $str\n"; }; }
+  $authDomain = strtolower(substr(strrchr($cfg['user'],'@')?:'',1));
+  $fromDomain = strtolower(substr(strrchr($cfg['from_addr'],'@')?:'',1));
+  if ($cfg['host']==='smtp.gmail.com' && $authDomain && $fromDomain && $authDomain!==$fromDomain && !$cfg['allow_alias']) {
+    $mail->setFrom($cfg['user'],$cfg['from_name'].' (via)'); $mail->addReplyTo($cfg['from_addr'],$cfg['from_name']);
+  } else $mail->setFrom($cfg['from_addr'],$cfg['from_name']);
+  $mail->addAddress($email,$displayName ?: $email);
+  $mail->Subject = 'Your Sub Session Certificate';
+  $mail->Body = "Dear $displayName,\n\nAttached is your certificate for the session: $speaker_name.\n\nThank you.";
+  $mail->addAttachment($abs_path, basename($file_path));
+  $mail->send();
+  $resp=['ok'=>true]; if ($forceDebug){ $cfgSafe=$cfg; unset($cfgSafe['pass']); $resp['debug']=$debugBuffer; $resp['config']=$cfgSafe; }
+  echo json_encode($resp);
+} catch (Exception $e) {
+  $err=$mail->ErrorInfo ?: $e->getMessage(); error_log('Sub session cert email error: '.$err); http_response_code(500); echo json_encode(['ok'=>false,'error'=>'Mail failed']);
+}
+?>

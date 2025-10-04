@@ -142,7 +142,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     } else {
         $action = $_POST['action'] ?? '';
 
-        if ($action === 'add') {
+    if ($action === 'add') {
             $name = trim($_POST['name'] ?? '');
             $title = trim($_POST['title'] ?? '');
             $room_id = isset($_POST['room_id']) && is_numeric($_POST['room_id']) ? (int)$_POST['room_id'] : 0;
@@ -150,6 +150,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $end_time = trim($_POST['end_time'] ?? '') ?: null;
             $bio = trim($_POST['bio'] ?? '');
             $photo_url = trim($_POST['photo_url'] ?? null);
+      $program_type = ($_POST['program_type'] ?? 'main') === 'sub' ? 'sub' : 'main'; // NEW
             // NEW
             $presentation_url = null;
 
@@ -180,21 +181,28 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
             if (empty($errors)) {
                 // CHANGED: include presentation_url
-                $stmt = $db->prepare("INSERT INTO speakers (room_id, name, title, start_time, end_time, photo_url, presentation_url, bio) VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
-                if ($stmt) {
-                    $stmt->bind_param('isssssss', $room_id, $name, $title, $start_time, $end_time, $photo_url, $presentation_url, $bio);
-                    if ($stmt->execute()) {
-                        $success = 'Speaker added.';
-                    } else {
-                        $errors[] = 'Insert failed: ' . $stmt->error;
-                    }
-                    $stmt->close();
-                } else {
-                    $errors[] = 'DB error: ' . $db->error;
-                }
+    $technical_department_id = null;
+    if ($program_type === 'sub') {
+      $technical_department_id = isset($_POST['technical_department_id']) && is_numeric($_POST['technical_department_id']) ? (int)$_POST['technical_department_id'] : 0;
+      if ($technical_department_id <= 0) { $errors[] = 'Technical Department is required for Sub Program speaker.'; }
+    }
+    if (empty($errors)) {
+      $stmt = $db->prepare("INSERT INTO speakers (room_id, name, title, start_time, end_time, photo_url, presentation_url, bio, program_type, technical_department_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+      if ($stmt) {
+        $stmt->bind_param('issssssssi', $room_id, $name, $title, $start_time, $end_time, $photo_url, $presentation_url, $bio, $program_type, $technical_department_id);
+        if ($stmt->execute()) {
+          $success = 'Speaker added.';
+        } else {
+          $errors[] = 'Insert failed: ' . $stmt->error;
+        }
+        $stmt->close();
+      } else {
+        $errors[] = 'DB error: ' . $db->error;
+      }
+    }
             }
 
-        } elseif ($action === 'update') {
+    } elseif ($action === 'update') {
             $id = isset($_POST['id']) ? (int)$_POST['id'] : 0;
             $name = trim($_POST['name'] ?? '');
             $title = trim($_POST['title'] ?? '');
@@ -203,6 +211,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $end_time = trim($_POST['end_time'] ?? '') ?: null;
             $bio = trim($_POST['bio'] ?? '');
             $photo_url = trim($_POST['photo_url'] ?? null);
+      $program_type = ($_POST['program_type'] ?? 'main') === 'sub' ? 'sub' : 'main'; // NEW
             // NEW: keep existing unless replaced
             $presentation_url = trim($_POST['presentation_url'] ?? '') ?: null;
 
@@ -234,18 +243,25 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
             if (empty($errors)) {
                 // CHANGED: include presentation_url
-                $stmt = $db->prepare("UPDATE speakers SET room_id = ?, name = ?, title = ?, start_time = ?, end_time = ?, photo_url = ?, presentation_url = ?, bio = ? WHERE id = ? LIMIT 1");
-                if ($stmt) {
-                    $stmt->bind_param('isssssssi', $room_id, $name, $title, $start_time, $end_time, $photo_url, $presentation_url, $bio, $id);
-                    if ($stmt->execute()) {
-                        $success = 'Speaker updated.';
-                    } else {
-                        $errors[] = 'Update failed: ' . $stmt->error;
-                    }
-                    $stmt->close();
-                } else {
-                    $errors[] = 'DB error: ' . $db->error;
-                }
+    $technical_department_id = null;
+    if ($program_type === 'sub') {
+      $technical_department_id = isset($_POST['technical_department_id']) && is_numeric($_POST['technical_department_id']) ? (int)$_POST['technical_department_id'] : 0;
+      if ($technical_department_id <= 0) { $errors[] = 'Technical Department is required for Sub Program speaker.'; }
+    }
+    if (empty($errors)) {
+      $stmt = $db->prepare("UPDATE speakers SET room_id = ?, name = ?, title = ?, start_time = ?, end_time = ?, photo_url = ?, presentation_url = ?, bio = ?, program_type = ?, technical_department_id = ? WHERE id = ? LIMIT 1");
+      if ($stmt) {
+        $stmt->bind_param('isssssssssii', $room_id, $name, $title, $start_time, $end_time, $photo_url, $presentation_url, $bio, $program_type, $technical_department_id, $id);
+        if ($stmt->execute()) {
+          $success = 'Speaker updated.';
+        } else {
+          $errors[] = 'Update failed: ' . $stmt->error;
+        }
+        $stmt->close();
+      } else {
+        $errors[] = 'DB error: ' . $db->error;
+      }
+    }
             }
 
         } elseif ($action === 'delete') {
@@ -314,14 +330,42 @@ if ($r2) {
 
 // fetch speakers list with room + day info
 $speakers = [];
+// Ensure program_type column exists (auto-migrate if missing)
+$colRes = $db->query("SHOW COLUMNS FROM speakers LIKE 'program_type'");
+if ($colRes && $colRes->num_rows === 0) {
+  @ $db->query("ALTER TABLE speakers ADD COLUMN program_type ENUM('main','sub') NOT NULL DEFAULT 'main'");
+}
+$colRes && $colRes->close();
+// Ensure technical_departments table exists
+$tblRes = $db->query("SHOW TABLES LIKE 'technical_departments'");
+if ($tblRes && $tblRes->num_rows === 0) {
+  $db->query("CREATE TABLE technical_departments (\n    id INT AUTO_INCREMENT PRIMARY KEY,\n    name VARCHAR(100) NOT NULL UNIQUE,\n    description TEXT NULL,\n    is_active TINYINT(1) NOT NULL DEFAULT 1,\n    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP\n  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+  $db->query("INSERT INTO technical_departments (name) VALUES ('HVAC'),('Power Plant'),('Maintenance'),('Automation'),('Design & Standards')");
+}
+$tblRes && $tblRes->close();
+// Ensure technical_department_id column exists
+$colRes2 = $db->query("SHOW COLUMNS FROM speakers LIKE 'technical_department_id'");
+if ($colRes2 && $colRes2->num_rows === 0) {
+  @ $db->query("ALTER TABLE speakers ADD COLUMN technical_department_id INT NULL AFTER program_type");
+  @ $db->query("ALTER TABLE speakers ADD CONSTRAINT fk_speakers_techdept FOREIGN KEY (technical_department_id) REFERENCES technical_departments(id) ON DELETE SET NULL ON UPDATE CASCADE");
+}
+$colRes2 && $colRes2->close();
+// Fetch technical departments
+$technical_departments = [];
+$tdRes = $db->query("SELECT id,name FROM technical_departments WHERE is_active=1 ORDER BY name ASC");
+if ($tdRes) { while($r=$tdRes->fetch_assoc()) $technical_departments[]=$r; }
 $sql = "
-    SELECT s.id, s.name, s.title, s.start_time, s.end_time, s.photo_url, s.presentation_url, s.room_id,   -- CHANGED
-           fr.name AS room_name,
-           fd.id AS day_id, fd.label AS day_label, fd.day_date
-    FROM speakers s
-    LEFT JOIN function_rooms fr ON fr.id = s.room_id
-    LEFT JOIN function_room_days fd ON fd.id = fr.day_id
-    ORDER BY fd.day_date ASC, fr.id ASC, s.start_time ASC
+  SELECT s.id, s.name, s.title, s.start_time, s.end_time, s.photo_url, s.presentation_url, s.room_id,
+       s.program_type,
+       s.technical_department_id,
+       td.name AS technical_department_name,
+       fr.name AS room_name,
+       fd.id AS day_id, fd.label AS day_label, fd.day_date
+  FROM speakers s
+  LEFT JOIN function_rooms fr ON fr.id = s.room_id
+  LEFT JOIN function_room_days fd ON fd.id = fr.day_id
+  LEFT JOIN technical_departments td ON td.id = s.technical_department_id
+  ORDER BY fd.day_date ASC, fr.id ASC, s.start_time ASC
 ";
 $res = $db->query($sql);
 if ($res) {
@@ -332,7 +376,7 @@ if ($res) {
 $edit = null;
 if (isset($_GET['edit']) && is_numeric($_GET['edit'])) {
     $eid = (int)$_GET['edit'];
-    $stmt = $db->prepare("SELECT id, name, title, start_time, end_time, photo_url, presentation_url, bio, room_id FROM speakers WHERE id = ? LIMIT 1"); // CHANGED
+  $stmt = $db->prepare("SELECT id, name, title, start_time, end_time, photo_url, presentation_url, bio, room_id, program_type, technical_department_id FROM speakers WHERE id = ? LIMIT 1"); // CHANGED
     if ($stmt) {
         $stmt->bind_param('i', $eid);
         $stmt->execute();
@@ -377,7 +421,7 @@ if (isset($_GET['edit']) && is_numeric($_GET['edit'])) {
               <div class="table-responsive">
                 <table class="table table-sm align-middle">
                   <thead>
-                    <tr><th>#</th><th>Photo</th><th>Name</th><th>Title</th><th>Day</th><th>Room</th><th>Time</th><th></th></tr>
+                    <tr><th>#</th><th>Photo</th><th>Name</th><th>Title</th><th>Program</th><th>Tech Dept</th><th>Day</th><th>Room</th><th>Time</th><th></th></tr>
                   </thead>
                   <tbody>
                     <?php foreach ($speakers as $s): ?>
@@ -392,6 +436,8 @@ if (isset($_GET['edit']) && is_numeric($_GET['edit'])) {
                         </td>
                         <td><?= e($s['name']) ?></td>
                         <td><?= e($s['title']) ?></td>
+                        <td><span class="badge bg-<?php echo ($s['program_type']??'main')==='sub'?'warning text-dark':'primary'; ?>"><?= e(strtoupper($s['program_type'] ?? 'main')) ?></span></td>
+                        <td><?= e($s['technical_department_name'] ?? ($s['program_type']==='sub' ? '—' : '')) ?></td>
                         <td><?= e($s['day_label'] ?: '-') ?></td>
                         <td><?= e($s['room_name'] ?: '-') ?></td>
                         <td>
@@ -439,6 +485,25 @@ if (isset($_GET['edit']) && is_numeric($_GET['edit'])) {
                 <div class="mb-2">
                   <label class="form-label">Title / Designation</label>
                   <input name="title" class="form-control" value="<?= e($edit['title']) ?>">
+                </div>
+
+                <div class="mb-2">
+                  <label class="form-label">Program Type</label>
+                  <select name="program_type" class="form-select" required>
+                    <option value="main" <?= ($edit['program_type'] ?? 'main')==='main'?'selected':'' ?>>Main Program</option>
+                    <option value="sub" <?= ($edit['program_type'] ?? 'main')==='sub'?'selected':'' ?>>Sub Program</option>
+                  </select>
+                </div>
+
+                <div class="mb-2" id="techDeptWrapperEdit">
+                  <label class="form-label">Technical Department (Sub Program)</label>
+                  <select name="technical_department_id" class="form-select" id="technical_department_id_edit">
+                    <option value="">-- select department --</option>
+                    <?php foreach ($technical_departments as $td): ?>
+                      <option value="<?= (int)$td['id'] ?>" <?= (isset($edit['technical_department_id']) && (int)$edit['technical_department_id']===$td['id'])?'selected':'' ?>><?= e($td['name']) ?></option>
+                    <?php endforeach; ?>
+                  </select>
+                  <small class="text-muted">Required if Program Type is Sub.</small>
                 </div>
 
                 <div class="mb-2">
@@ -511,6 +576,25 @@ if (isset($_GET['edit']) && is_numeric($_GET['edit'])) {
                 <div class="mb-2">
                   <label class="form-label">Title / Designation</label>
                   <input name="title" class="form-control" value="">
+                </div>
+
+                <div class="mb-2">
+                  <label class="form-label">Program Type</label>
+                  <select name="program_type" class="form-select" required>
+                    <option value="main" selected>Main Program</option>
+                    <option value="sub">Sub Program</option>
+                  </select>
+                </div>
+
+                <div class="mb-2" id="techDeptWrapperAdd">
+                  <label class="form-label">Technical Department <span class="text-muted" style="font-weight:normal;">(required for Sub)</span></label>
+                  <select name="technical_department_id" class="form-select" id="technical_department_id_add">
+                    <option value="">-- select department --</option>
+                    <?php foreach ($technical_departments as $td): ?>
+                      <option value="<?= (int)$td['id'] ?>"><?= e($td['name']) ?></option>
+                    <?php endforeach; ?>
+                  </select>
+                  <small class="text-muted" id="techDeptHintAdd">Select a Program Type above.</small>
                 </div>
 
                 <div class="mb-2">
@@ -631,6 +715,35 @@ document.addEventListener('DOMContentLoaded', () => {
       filterRoomsFor(roomSelectEdit, daySelectEdit.value, null, noRoomsEdit);
     });
   }
+
+  // Tech Department toggling
+  const addForm = document.querySelector('form input[name="action"][value="add"]')?.closest('form');
+  const editForm = document.querySelector('form input[name="action"][value="update"]')?.closest('form');
+  const techDeptWrapperAdd = document.getElementById('techDeptWrapperAdd');
+  const techDeptWrapperEdit = document.getElementById('techDeptWrapperEdit');
+  function initToggle(form, wrapper){
+    if(!form || !wrapper) return;
+    const progSelect = form.querySelector('select[name="program_type"]');
+    const deptSelect = wrapper.querySelector('select[name="technical_department_id"]');
+    const hint = wrapper.querySelector('small#techDeptHintAdd') || wrapper.querySelector('small');
+    function sync(){
+      if (!progSelect || !deptSelect) return;
+      if (progSelect.value === 'sub') {
+        deptSelect.disabled = false;
+        if (hint) hint.textContent = 'Required for Sub Program.';
+        wrapper.classList.remove('opacity-50');
+      } else {
+        deptSelect.value = '';
+        deptSelect.disabled = true;
+        if (hint) hint.textContent = 'Disabled (only for Sub Program).';
+        wrapper.classList.add('opacity-50');
+      }
+    }
+    if (progSelect) progSelect.addEventListener('change', sync);
+    sync();
+  }
+  initToggle(addForm, techDeptWrapperAdd);
+  initToggle(editForm, techDeptWrapperEdit);
 });
 </script>
 </body>

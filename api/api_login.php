@@ -92,9 +92,17 @@ if ($upd = $db->prepare("
     $upd->close();
 }
 
-// Success: AJAX returns JSON; non-AJAX redirects with 303
-$_SESSION['toast'] = ['type' => 'success', 'msg' => 'Login successful. Redirecting…'];
+// Success: choose redirect target (intended_url has precedence if set and looks internal)
 $target = '../dashboard/dashboard.php';
+if (!empty($_SESSION['intended_url'])) {
+    $raw = (string)$_SESSION['intended_url'];
+    // Basic safety: only allow relative URLs (no scheme/host)
+    if (!preg_match('#^https?://#i', $raw)) {
+        $target = $raw;
+    }
+    unset($_SESSION['intended_url']);
+}
+$_SESSION['toast'] = ['type' => 'success', 'msg' => 'Login successful. Redirecting…'];
 session_write_close();
 
 if (is_ajax()) {

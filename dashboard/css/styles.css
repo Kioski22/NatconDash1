@@ -20,7 +20,7 @@ body {
 
 /* Header styling */
 header {
-    background-color: #000f73;
+    background-color: #000e6c;
     /* Blue header */
     color: white;
     box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
@@ -302,12 +302,12 @@ nav ul li a.signup:hover {
 
 /* Optional: Add this for consistency */
 header {
-    background-color: #000f73 !important;
+    background-color: #000e6c !important;
 }
 
 /* Blue full-width section with centered image */
 .program-section {
-    background-color: #000f73;
+    background-color: #000e6c;
     width: 100vw;
     margin-left: calc(-50vw + 50%);
     padding: 60px 0;
@@ -354,7 +354,7 @@ header {
 }
 
 .psme-footer .footer-developer {
-    background-color: #00055c;
+    background-color: #000e6c;
     /* Dark blue */
     font-size: 1.0rem;
 }

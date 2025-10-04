@@ -14,9 +14,35 @@ function e($s){ return htmlspecialchars((string)$s,ENT_QUOTES|ENT_SUBSTITUTE,'UT
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
   <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap" rel="stylesheet">
   <style>
-    :root {--primary-color:#111e6c;--secondary-color:#e27900ff;--secondary-dark:#ce6e00ff;--border-color:#1e2e7a;}
-    body{background:#0d1b52;color:#fff;font-family:'Poppins',sans-serif;padding-top:70px;}
-    .navbar{backdrop-filter:blur(20px);background:rgba(255,255,255,.95)!important;border-bottom:1px solid #e5e7eb;}
+    :root {
+      --primary-color: #111e6c;
+      --primary-dark: #1116ec;
+      --primary-light: #dbeafe;
+      --secondary-color: #e27900ff;
+      --secondary-dark: #ce6e00ff;
+      --success-color: #10b981;
+      --dark-color: #111e6c;
+      --light-gray: #f8fafc;
+      --border-color: #e5e7eb;
+    }
+
+    * {
+      font-family: 'Poppins', sans-serif;
+    }
+    
+    .navbar {
+      backdrop-filter: blur(20px);
+      background: rgba(255, 255, 255, 0.95) !important;
+      border-bottom: 1px solid var(--border-color);
+    }
+
+  .navbar-brand span {
+        background: linear-gradient(135deg, var(--primary-color), var(--secondary-color));
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        background-clip: text;
+      }
+ body { background: var(--primary-color); color:#fff; font-family:'Poppins',sans-serif; padding-top:70px; }
     .certificate-card{background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.1);border-radius:14px;padding:22px;display:flex;flex-direction:column;gap:10px;position:relative;}
     .badge-status{position:absolute;top:14px;right:14px;padding:6px 10px;font-size:.7rem;letter-spacing:.5px;}
     .btn-generate{background:linear-gradient(135deg,var(--secondary-color),var(--secondary-dark));border:none;font-weight:600;}
@@ -33,7 +59,7 @@ function e($s){ return htmlspecialchars((string)$s,ENT_QUOTES|ENT_SUBSTITUTE,'UT
         <div><span class="fs-5 fw-bold d-block">73rd PSME</span><small class="d-none d-md-block fw-medium">National Convention</small></div>
       </a>
       <button class="navbar-toggler border-0" type="button" data-bs-toggle="collapse" data-bs-target="#nav"><span class="navbar-toggler-icon"></span></button>
-      <div id="nav" class="collapse navbar-collapse"><ul class="navbar-nav ms-auto"><li class="nav-item"><a class="nav-link fw-semibold" href="function_rooms.php">< Back</a></li></ul></div>
+      <div id="nav" class="collapse navbar-collapse"><ul class="navbar-nav ms-auto"><li class="nav-item"><a class="nav-link fw-semibold" href="dashboard.php">< Back</a></li></ul></div>
     </div>
   </nav>
 
@@ -87,7 +113,7 @@ function e($s){ return htmlspecialchars((string)$s,ENT_QUOTES|ENT_SUBSTITUTE,'UT
       const badgeClass = wasIssued? 'bg-success' : (isElig? 'bg-primary':'bg-secondary');
       const badgeText = wasIssued? 'ISSUED' : (isElig? 'ELIGIBLE':'NOT ELIGIBLE');
       card.innerHTML = `<span class="badge badge-status ${badgeClass}">${badgeText}</span>
-        <h5 class="mb-1">${meta.title}</h5>
+        <h5 class="mb-1 mt-4">${meta.title}</h5>
         <p class="small mb-2 text-white-50">${meta.desc}</p>
         <div class="mt-auto" data-actions></div>`;
       const actions = card.querySelector('[data-actions]');

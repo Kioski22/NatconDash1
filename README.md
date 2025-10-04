@@ -77,6 +77,17 @@ You can alternatively use EB console environment variables (preferred for secret
 - Introduce basic router / front controller to reduce duplicate bootstrap code.
 - Harden authentication and password reset flows (rate limiting, token expiration).
 
+## Navigation Flow (Updated)
+1. Dashboard → Function Rooms (`function_rooms.php`)
+2. Select Day (routes to `programs.php?day_id=...`)
+3. Choose Program:
+	- Main Program → `main_program_day.php?day_id=...` (rooms & speakers)
+	- Sub Program → `sub_program_day.php?day_id=...` (departments & speakers)
+4. Speaker Session Page (main: `speaker_form.php`, sub: `sub_speaker_form.php`)
+
+Legacy pages `main_program.php` and `sub_program.php` were removed as redundant.
+
+
 ---
 Generated CI/CD scaffolding added: `composer.json` (scripts), `buildspec.yml`, `.ebextensions/`, `phpunit.xml`, `tests/`.
 
