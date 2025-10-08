@@ -115,6 +115,18 @@ foreach ($days as $i=>$d) { $dayNumberById[(int)$d['id']] = $i+1; }
       </div>
     <?php endforeach; ?>
   </div>
+  <div id="overallProgress" class="mt-5 d-none" style="max-width:760px;margin-left:auto;margin-right:auto;">
+    <div class="p-4 rounded-4" style="background:rgba(255,255,255,0.1);border:1px solid rgba(255,255,255,0.25);">
+      <h4 class="fw-bold mb-2">Overall Main Program Progress</h4>
+      <p class="small mb-2 opacity-75" id="overallEvalText">Loading...</p>
+      <p class="small mb-3 opacity-50" id="overallQuizText"></p>
+      <div class="progress mb-3" style="height:10px;">
+        <div id="overallBar" class="progress-bar bg-success" style="width:0%"></div>
+      </div>
+      <button id="btnGenerateOverall" class="btn btn-warning fw-semibold px-4 rounded-pill d-none" type="button">Generate Overall Main Program Certificate</button>
+      <div id="overallAlert" class="small mt-3"></div>
+    </div>
+  </div>
 </div>
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
 <script>
@@ -127,6 +139,42 @@ foreach ($days as $i=>$d) { $dayNumberById[(int)$d['id']] = $i+1; }
         window.location = 'main_program_day.php?day_id=' + encodeURIComponent(dayId);
       });
     });
+  });
+
+  // Overall progress + certificate
+  async function loadOverall(){
+    try {
+      const r = await fetch('../api/main_program_completion.php', {credentials:'same-origin'});
+      const data = await r.json();
+      if(!data || !data.ok) return;
+      const wrap = document.getElementById('overallProgress');
+      wrap.classList.remove('d-none');
+      const evalPct = data.eval_total>0 ? Math.round(data.eval_completed*100/data.eval_total) : 0;
+      document.getElementById('overallBar').style.width = evalPct + '%';
+      document.getElementById('overallEvalText').textContent = data.eval_completed + ' of ' + data.eval_total + ' evaluations completed.';
+      document.getElementById('overallQuizText').textContent = 'Quizzes: ' + data.quiz_completed + ' of ' + data.quiz_required + ' completed';
+      const btn = document.getElementById('btnGenerateOverall');
+      // Allow relaxed completion (only future-day speakers remaining)
+      if (data.complete || data.complete_relaxed) { btn.classList.remove('d-none'); }
+      else { btn.classList.add('d-none'); }
+      if (!data.complete && data.complete_relaxed) {
+        document.getElementById('overallAlert').innerHTML = '<span class="text-warning">Note: Some remaining speakers are scheduled for future days; certificate generation is allowed early.</span>';
+      }
+    } catch(e) { /* silent */ }
+  }
+  loadOverall();
+  setInterval(loadOverall, 20000);
+
+  document.getElementById('btnGenerateOverall').addEventListener('click', async function(){
+    const btn = this; const alertEl = document.getElementById('overallAlert');
+    btn.disabled=true; const orig = btn.textContent; btn.textContent='Generating...'; alertEl.textContent='';
+    try {
+      const res = await fetch('../api/main_program_certificate.php', {method:'POST',credentials:'same-origin'});
+      const ct=(res.headers.get('content-type')||'').toLowerCase(); const raw=await res.text(); let data={}; try{ data=ct.includes('json')?JSON.parse(raw):{};}catch(e){}
+      if(!res.ok || !data.ok) throw new Error(data.error||'Generation failed');
+      alertEl.innerHTML = '<span class="text-success">Certificate ready. <a class="link-light" target="_blank" href="../'+data.file_path+'">Open PDF</a></span>';
+      btn.textContent='Regenerate'; btn.disabled=false;
+    } catch(err){ alertEl.innerHTML='<span class="text-danger">'+(err.message||'Failed to generate')+'</span>'; btn.disabled=false; btn.textContent=orig; }
   });
 </script>
 </body>

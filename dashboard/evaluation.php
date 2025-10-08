@@ -1,29 +1,15 @@
 <?php
-
+// Dynamic per-speaker evaluation (generic question set) replacing legacy fixed 4-scale form
 session_start();
 require_once __DIR__ . '/../db.php';
-
-// DB normalize
-if (isset($conn) && $conn instanceof mysqli) $db = $conn;
-elseif (isset($mysqli) && $mysqli instanceof mysqli) $db = $mysqli;
-else { http_response_code(500); echo "DB unavailable"; exit; }
-
-if (!function_exists('e')) { function e($s){ return htmlspecialchars((string)$s, ENT_QUOTES|ENT_SUBSTITUTE, 'UTF-8'); } }
-
-$user_id = isset($_SESSION['user_id']) ? (int)$_SESSION['user_id'] : 0;
-if ($user_id <= 0) { header('Location: ../Credentials/login.php'); exit; }
-
-$speaker_id = isset($_GET['speaker_id']) ? (int)$_GET['speaker_id'] : 0;
-if ($speaker_id <= 0) { http_response_code(400); echo "Invalid speaker."; exit; }
-
-// Fetch speaker
+if (isset($conn) && $conn instanceof mysqli) $db = $conn; elseif (isset($mysqli) && $mysqli instanceof mysqli) $db = $mysqli; else { http_response_code(500); echo 'DB unavailable'; exit; }
+if (!function_exists('e')) { function e($s){ return htmlspecialchars((string)$s, ENT_QUOTES|ENT_SUBSTITUTE,'UTF-8'); } }
+$user_id = isset($_SESSION['user_id']) ? (int)$_SESSION['user_id'] : 0; if ($user_id<=0){ header('Location: ../Credentials/login.php'); exit; }
+$speaker_id = isset($_GET['speaker_id']) ? (int)$_GET['speaker_id'] : 0; if ($speaker_id<=0){ http_response_code(400); echo 'Invalid speaker.'; exit; }
 $spk = ['name'=>'Speaker','title'=>'','program_type'=>''];
-if ($st = $db->prepare("SELECT name, title, program_type FROM speakers WHERE id = ? LIMIT 1")) {
-  $st->bind_param('i', $speaker_id);
-  $st->execute();
-  $st->bind_result($spk['name'], $spk['title'], $spk['program_type']);
-  $st->fetch(); $st->close();
-}
+if ($st=$db->prepare('SELECT name,title,program_type FROM speakers WHERE id=? LIMIT 1')) { $st->bind_param('i',$speaker_id); $st->execute(); $st->bind_result($spk['name'],$spk['title'],$spk['program_type']); $st->fetch(); $st->close(); }
+if (empty($_SESSION['csrf_token'])) $_SESSION['csrf_token'] = bin2hex(random_bytes(16));
+$csrf = $_SESSION['csrf_token'];
 ?>
 <!doctype html>
 <html lang="en">
@@ -117,49 +103,33 @@ if ($st = $db->prepare("SELECT name, title, program_type FROM speakers WHERE id 
     <!-- Intro card (like Google Forms header card) -->
     <div class="gf-card mt-5">
       <div class="section">
-        <div class="gf-title">Session Feedback</div>
-        <p class="gf-sub">Please rate the speaker and share any comments to help us improve.</p>
+        <div class="gf-title mb-2">Session Feedback</div>
+        <div class="small mb-2" id="speakerMeta">
+          Evaluating: <strong><?= e($spk['name']) ?></strong>
+          <?php if($spk['title']): ?>
+            <span class="text-muted">(<?= e($spk['title']) ?>)</span>
+          <?php endif; ?>
+          <span class="badge bg-<?= strtolower($spk['program_type'])==='sub' ? 'warning text-dark' : 'primary' ?> ms-2" style="font-size:.65rem; letter-spacing:.5px;"><?= strtoupper($spk['program_type'] ?: 'MAIN') ?></span>
+        </div>
+        <p class="gf-sub mb-1">Please rate the speaker and share any comments to help us improve.</p>
+        <div class="small text-muted mb-2" id="questionCount" style="font-weight:500;"></div>
         <div class="gf-required-note">* Required</div>
       </div>
     </div>
 
-    <!-- Form card -->
-    <div class="gf-card">
-      <form id="evalForm" class="section">
-        <input type="hidden" name="speaker_id" value="<?= (int)$speaker_id ?>">
-
-        <?php
-          $fields = [
-            'content_quality' => 'Content Quality',
-            'speaker_clarity' => 'Speaker Clarity',
-            'engagement' => 'Engagement',
-            'overall' => 'Overall Rating'
-          ];
-          foreach ($fields as $name => $label):
-        ?>
-          <div class="mb-4">
-            <div class="q-title q-required"><?= e($label) ?></div>
-            <div class="chip-group">
-              <?php for ($i=1; $i<=5; $i++): $id = $name.'_'.$i; ?>
-                <input class="chip-input" type="radio" name="<?= e($name) ?>" id="<?= e($id) ?>" value="<?= $i ?>">
-                <label class="chip" for="<?= e($id) ?>"><?= $i ?></label>
-              <?php endfor; ?>
-            </div>
+    <!-- Dynamic Form card -->
+    <div class="gf-card" id="formCard">
+      <div class="section">
+        <form id="evalForm" novalidate>
+          <input type="hidden" id="speakerId" value="<?= (int)$speaker_id ?>">
+          <div id="questionsWrap"></div>
+          <div class="gf-actions">
+            <button class="btn btn-primary gf" type="submit" id="submitBtn">Submit</button>
+            <a class="btn btn-light" href="<?= $isSub ? 'sub_speaker_form.php' : 'speaker_form.php' ?>?id=<?= (int)$speaker_id ?>">Cancel</a>
           </div>
-        <?php endforeach; ?>
-
-        <div class="mb-1">
-          <div class="q-title">Comments (optional)</div>
-          <textarea class="form-control gf-textarea" name="comments" placeholder="Share your feedback..."></textarea>
-        </div>
-
-        <div class="gf-actions">
-          <button class="btn btn-primary gf" type="submit" id="submitBtn">Submit</button>
-          <a class="btn btn-light" href="<?= $isSub ? 'sub_speaker_form.php' : 'speaker_form.php' ?>?id=<?= (int)$speaker_id ?>">Cancel</a>
-        </div>
-      </form>
+        </form>
+      </div>
     </div>
-
     <div id="doneCard" class="gf-card d-none">
       <div class="section done-card">
         <h5 class="mb-1">Thank you!</h5>
@@ -169,69 +139,47 @@ if ($st = $db->prepare("SELECT name, title, program_type FROM speakers WHERE id 
   </div>
 
 <script>
-const alertEl = document.getElementById('alert');
-function showAlert(msg, type='info'){
-  alertEl.className = 'alert alert-' + type + ' gf-alert';
-  alertEl.textContent = msg;
-  alertEl.classList.remove('d-none');
+const alertEl=document.getElementById('alert');
+function showAlert(msg,type='info'){ alertEl.className='alert alert-'+type+' gf-alert'; alertEl.textContent=msg; alertEl.classList.remove('d-none'); }
+const submitBtn=document.getElementById('submitBtn');
+const doneCard=document.getElementById('doneCard');
+const formCard=document.getElementById('formCard');
+const form=document.getElementById('evalForm');
+const questionsWrap=document.getElementById('questionsWrap');
+const speakerId=<?= (int)$speaker_id ?>;
+let questions=[];
+
+async function preloadStatus(){
+  try{ const r=await fetch('../api/speaker_eval_get.php?speaker_id='+speakerId,{credentials:'same-origin'}); if(!r.ok) return; const data=await r.json(); if(data.evaluated){ formCard.classList.add('d-none'); doneCard.classList.remove('d-none'); showAlert('You already submitted an evaluation for this speaker.','warning'); } }catch(e){}
 }
-
-const form = document.getElementById('evalForm');
-const btn = document.getElementById('submitBtn');
-const doneCard = document.getElementById('doneCard');
-
-// Prefill if already submitted
-(async function preload(){
-  try {
-    const res = await fetch('../api/eval_get.php?speaker_id=' + <?= (int)$speaker_id ?>, { credentials: 'same-origin' });
-    if (res.status === 404) return;
-    if (!res.ok) return;
-    const data = await res.json();
-    if (data && data.found && data.evaluation) {
-      form.classList.add('d-none');
-      doneCard.classList.remove('d-none');
-      showAlert('You already submitted an evaluation for this speaker.', 'warning');
-    }
-  } catch(e){}
-})();
-
-form.addEventListener('submit', async (e) => {
-  e.preventDefault();
-  alertEl.classList.add('d-none');
-
-  const required = ['content_quality','speaker_clarity','engagement','overall'];
-  for (const name of required) {
-    if (!form.querySelector(`input[name="${name}"]:checked`)) {
-      showAlert('Please rate all required items (1-5).', 'warning');
-      return;
-    }
+async function loadQuestions(){ questionsWrap.innerHTML='<div class="text-muted">Loading questions...</div>'; try{ const r=await fetch('../api/speaker_eval_questions.php',{credentials:'same-origin'}); const data=await r.json(); if(!data.ok) throw new Error(data.error||'Load failed'); questions=data.questions||[]; renderQuestions(); }catch(e){ questionsWrap.innerHTML='<div class="text-danger">'+e.message+'</div>'; } }
+function renderQuestions(){
+  if(!questions.length){
+    questionsWrap.innerHTML='<p class="text-muted">No active questions.</p>';
+    submitBtn.disabled=true;
+    document.getElementById('questionCount').textContent='';
+    return;
   }
-
-  const fd = new FormData(form);
-  btn.disabled = true; btn.textContent = 'Submitting...';
-  try {
-    const res = await fetch('../api/eval_submit.php', { method:'POST', body: fd, credentials:'same-origin' });
-    const isJson = (res.headers.get('content-type') || '').includes('application/json');
-    const data = isJson ? await res.json() : {};
-    if (res.status === 403) { showAlert(data.error || 'Please complete the quiz first.', 'danger'); return; }
-    if (res.status === 409) { showAlert('You already submitted an evaluation for this speaker.', 'warning'); form.classList.add('d-none'); doneCard.classList.remove('d-none'); return; }
-    if (!res.ok) { showAlert(data.error || 'Submission failed.', 'danger'); return; }
-
-    form.classList.add('d-none');
-    doneCard.classList.remove('d-none');
-    showAlert('Evaluation submitted successfully.', 'success');
-
-    // Mark speaker as evaluated in session
-    <?php
-    $_SESSION['evaluated_speakers'] = $_SESSION['evaluated_speakers'] ?? [];
-    $_SESSION['evaluated_speakers'][(int)$_GET['speaker_id']] = 1;
-    ?>
-  } catch(err) {
-    showAlert('Network error. Please try again.', 'danger');
-  } finally {
-    btn.disabled = false; btn.textContent = 'Submit';
+  submitBtn.disabled=false;
+  const frag=document.createDocumentFragment();
+  questions.forEach(q=>frag.appendChild(renderQuestion(q)));
+  questionsWrap.innerHTML='';
+  questionsWrap.appendChild(frag);
+  // Update question count display
+  const qc=document.getElementById('questionCount');
+  if(qc){
+    qc.textContent = 'Total Questions: '+questions.length;
   }
-});
+}
+function renderQuestion(q){ const wrap=document.createElement('div'); wrap.className='mb-4'; const req=q.is_required==1; const title='<div class="q-title'+(req?' q-required':'')+'">'+escapeHtml(q.question_text)+'</div>'; let control=''; switch(q.question_type){ case 'scale': control=renderScale(q); break; case 'text': control='<input type="text" class="form-control" name="q_'+q.id+'" '+(req?'required':'')+' maxlength="500">'; break; case 'textarea': control='<textarea class="form-control gf-textarea" name="q_'+q.id+'" '+(req?'required':'')+' maxlength="2000"></textarea>'; break; case 'multiple_choice_single': control=renderOptions(q,'radio'); break; case 'multiple_choice_multi': control=renderOptions(q,'checkbox'); break; case 'dropdown': control=renderDropdown(q); break; case 'checkbox': control='<div class="form-check"><input class="form-check-input" type="checkbox" name="q_'+q.id+'" id="chk_'+q.id+'"><label class="form-check-label" for="chk_'+q.id+'">Yes</label></div>'; break; default: control='<div class="text-muted">Unsupported</div>'; } wrap.innerHTML=title+control; return wrap; }
+function renderScale(q){ const min=q.min_scale||1,max=q.max_scale||5; const left=escapeHtml(q.scale_label_left||''); const right=escapeHtml(q.scale_label_right||''); let chips=''; for(let i=min;i<=max;i++){ const id='q_'+q.id+'_'+i; chips+=`<input class="chip-input" type="radio" name="q_${q.id}" id="${id}" value="${i}" ${(q.is_required==1)?'required':''}><label class="chip" for="${id}">${i}</label>`; } return `<div class="chip-group">${chips}</div><div class="small text-muted mt-1">${left} <span class="mx-1">↔</span> ${right}</div>`; }
+function renderOptions(q,mode){ const opts=q.options||[]; if(!opts.length) return '<div class="text-muted small">No options</div>'; const type=mode==='radio'?'radio':'checkbox'; let html=''; opts.forEach(o=>{ const id='q_'+q.id+'_opt_'+o.id; html+=`<div class="form-check"><input class="form-check-input" type="${type}" name="q_${q.id}${type==='checkbox'?'[]':''}" id="${id}" value="${o.id}" ${(q.is_required==1 && type==='radio')?'required':''}><label class="form-check-label" for="${id}">${escapeHtml(o.option_text)}</label></div>`; }); return html; }
+function renderDropdown(q){ const opts=q.options||[]; if(!opts.length) return '<div class="text-muted small">No options</div>'; let html=`<select class="form-select" name="q_${q.id}" ${(q.is_required==1)?'required':''}><option value="">-- Select --</option>`; opts.forEach(o=>{ html+=`<option value="${o.id}">${escapeHtml(o.option_text)}</option>`; }); html+='</select>'; return html; }
+function escapeHtml(s){ return (s||'').replace(/[&<>"']/g,c=>({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;','\'':'&#39;' }[c])); }
+function collectAnswers(){ const out=[]; for(const q of questions){ const name='q_'+q.id; if(['scale','multiple_choice_single','dropdown'].includes(q.question_type)){ let el=form.querySelector(`[name="${name}"]:checked`); if(q.question_type==='dropdown') el=form.querySelector(`select[name="${name}"]`); let val=null; if(q.question_type==='dropdown'){ if(el && el.value!=='') val=parseInt(el.value,10); } else if(el) val=parseInt(el.value,10); if(val!==null) out.push({question_id:q.id,value:val}); } else if(['text','textarea'].includes(q.question_type)){ const el=form.querySelector(`[name="${name}"]`); const v=el.value.trim(); if(v!=='') out.push({question_id:q.id,value:v}); } else if(q.question_type==='multiple_choice_multi'){ const els=[...form.querySelectorAll(`input[name="${name}[]"]:checked`)]; const arr=els.map(e=>parseInt(e.value,10)); if(arr.length) out.push({question_id:q.id,value:arr}); } else if(q.question_type==='checkbox'){ const el=form.querySelector(`[name="${name}"]`); out.push({question_id:q.id,value:el.checked?1:0}); } } return out; }
+form.addEventListener('submit', async e=>{ e.preventDefault(); alertEl.classList.add('d-none'); for(const q of questions){ if(q.is_required==1){ const name='q_'+q.id; let ok=false; switch(q.question_type){ case 'scale': case 'multiple_choice_single': ok=!!form.querySelector(`[name="${name}"]:checked`); break; case 'dropdown': const sel=form.querySelector(`select[name="${name}"]`); ok=sel && sel.value!==''; break; case 'text': case 'textarea': const el=form.querySelector(`[name="${name}"]`); ok=el.value.trim()!==''; break; case 'multiple_choice_multi': ok=form.querySelectorAll(`input[name="${name}[]"]:checked`).length>0; break; case 'checkbox': ok=true; break; } if(!ok){ showAlert('Please complete all required questions.','warning'); return; } } } const answers=collectAnswers(); if(!answers.length){ showAlert('No answers to submit.','warning'); return; } submitBtn.disabled=true; submitBtn.textContent='Submitting...'; try { const res=await fetch('../api/speaker_eval_submit.php',{ method:'POST', credentials:'same-origin', headers:{'Content-Type':'application/json','X-CSRF-Token':<?= json_encode($csrf) ?>}, body: JSON.stringify({speaker_id:speakerId,answers}) }); const data=await res.json(); if(res.status===403){ showAlert(data.error||'Please complete the quiz first.','danger'); return; } if(res.status===409){ showAlert('You already submitted an evaluation for this speaker.','warning'); formCard.classList.add('d-none'); doneCard.classList.remove('d-none'); return; } if(!res.ok || !data.ok){ showAlert(data.error||'Submission failed.','danger'); return; } formCard.classList.add('d-none'); doneCard.classList.remove('d-none'); showAlert('Evaluation submitted successfully.','success'); } catch(err){ showAlert('Network error. Please try again.','danger'); } finally { submitBtn.disabled=false; submitBtn.textContent='Submit'; } });
+preloadStatus();
+loadQuestions();
 </script>
 </body>
 </html>

@@ -34,6 +34,23 @@ $q = $db->query("
 ");
 if ($q) { while ($r = $q->fetch_assoc()) $speakers[] = $r; }
 
+// Build a fast lookup of speakers that already have a quiz so we can hide them in the dropdown when creating a new quiz.
+$speakersWithQuiz = [];
+if ($res = $db->query("SELECT speaker_id FROM quizzes GROUP BY speaker_id")) {
+  while ($row = $res->fetch_assoc()) { $speakersWithQuiz[(int)$row['speaker_id']] = true; }
+  $res->close();
+}
+// Include legacy quiz presence from quiz_questions table (if it exists) so we don't offer those speakers again
+if ($chk = $db->query("SHOW TABLES LIKE 'quiz_questions'")) {
+  if ($chk->num_rows > 0) {
+    if ($qq = $db->query("SELECT DISTINCT speaker_id FROM quiz_questions WHERE speaker_id IS NOT NULL")) {
+      while ($row = $qq->fetch_assoc()) { $speakersWithQuiz[(int)$row['speaker_id']] = true; }
+      $qq->close();
+    }
+  }
+  $chk->close();
+}
+
 // handle POST
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
   $token = $_POST['csrf_token'] ?? '';
@@ -707,7 +724,7 @@ function pretty_count($jsonStr) {
                 </thead>
                 <tbody>
                   <?php foreach ($quizzes as $q): $ptype = strtolower($q['program_type'] ?? 'main'); ?>
-                    <tr>
+                    <tr class="quiz-row" data-quiz-id="<?= (int)$q['id'] ?>" style="cursor:pointer;">
                       <td><span class="badge bg-light text-dark"><?= (int)$q['id'] ?></span></td>
                       <td>
                         <div class="d-flex flex-column align-items-center gap-1">
@@ -724,19 +741,31 @@ function pretty_count($jsonStr) {
                       <td><?= e($q['room_name'] ?: '-') ?></td>
                       <td><span class="badge badge-soft"><?= pretty_count($q['questions']) ?></span></td>
                       <td><small><?= date('M j, Y', strtotime($q['created_at'])) ?></small></td>
-                      <td>
-                        <div class="d-flex gap-1 justify-content-center">
-                          <a class="btn btn-sm btn-primary" href="admin_quiz_manage.php?edit=<?= (int)$q['id'] ?>" title="Edit">
-                            <i class="bi bi-pencil"></i>
+                      <td style="min-width:140px;">
+                        <div class="d-flex flex-column flex-md-row flex-wrap gap-2 justify-content-center align-items-stretch">
+                          <a class="btn btn-sm btn-outline-primary d-inline-flex align-items-center gap-1 px-2 fw-semibold" href="admin_quiz_manage.php?edit=<?= (int)$q['id'] ?>" title="Edit Quiz">
+                            <i class="bi bi-pencil"></i><span>Edit</span>
                           </a>
                           <form method="post" class="d-inline" onsubmit="return confirm('Delete this quiz? This action cannot be undone.');">
                             <input type="hidden" name="csrf_token" value="<?= e($_SESSION['csrf_token']) ?>">
                             <input type="hidden" name="action" value="delete">
                             <input type="hidden" name="id" value="<?= (int)$q['id'] ?>">
-                            <button class="btn btn-sm btn-danger" title="Delete">
-                              <i class="bi bi-trash"></i>
+                            <button class="btn btn-sm btn-outline-danger d-inline-flex align-items-center gap-1 px-2" title="Delete Quiz">
+                              <i class="bi bi-trash"></i><span>Delete</span>
                             </button>
                           </form>
+                          <!-- Fallback plain links if styles fail -->
+                          <noscript>
+                            <div>
+                              <a href="admin_quiz_manage.php?edit=<?= (int)$q['id'] ?>">Edit</a> |
+                              <form method="post" style="display:inline" onsubmit="return confirm('Delete this quiz?');">
+                                <input type="hidden" name="csrf_token" value="<?= e($_SESSION['csrf_token']) ?>">
+                                <input type="hidden" name="action" value="delete">
+                                <input type="hidden" name="id" value="<?= (int)$q['id'] ?>">
+                                <button type="submit" class="btn btn-link p-0 m-0">Delete</button>
+                              </form>
+                            </div>
+                          </noscript>
                         </div>
                       </td>
                     </tr>
@@ -783,12 +812,20 @@ function pretty_count($jsonStr) {
             </label>
             <select name="speaker_id" class="form-select" required>
               <option value="">-- Choose Speaker --</option>
-              <?php foreach ($speakers as $sp): $ptype = strtolower($sp['program_type'] ?? 'main'); $pLabel = $ptype==='sub' ? 'Sub Program' : 'Main Program'; ?>
-                <option value="<?= (int)$sp['id'] ?>" <?= (($edit && (int)$edit['speaker_id'] === (int)$sp['id']) || $preselectSpeakerId === (int)$sp['id']) ? 'selected' : '' ?>>
+              <?php
+              foreach ($speakers as $sp):
+                $ptype = strtolower($sp['program_type'] ?? 'main');
+                $pLabel = $ptype === 'sub' ? 'Sub Program' : 'Main Program';
+                $sid = (int)$sp['id'];
+                // Skip speakers that already have a quiz unless we're editing THAT quiz (allow keeping the selection in edit mode)
+                if (isset($speakersWithQuiz[$sid]) && (!$edit || (int)$edit['speaker_id'] !== $sid)) continue;
+              ?>
+                <option value="<?= $sid ?>" <?= (($edit && (int)$edit['speaker_id'] === $sid) || $preselectSpeakerId === $sid) ? 'selected' : '' ?>>
                   [<?= $pLabel ?>] <?= e($sp['name']) ?><?= $sp['day_label'] ? ' — '.e($sp['day_label']) : '' ?><?= $sp['room_name'] ? ' — '.e($sp['room_name']) : '' ?>
                 </option>
               <?php endforeach; ?>
             </select>
+            <div class="form-text text-center mt-1">Speakers already having a quiz (including legacy quiz questions) are hidden.</div>
           </div>
 
           <!-- Hidden JSON fields -->
@@ -1155,6 +1192,28 @@ function pretty_count($jsonStr) {
     if (!Number.isInteger(initial.answers[i])) initial.answers[i] = 0;
   }
   render();
+
+  // Make rows clickable for edit
+  document.querySelectorAll('tr.quiz-row').forEach(row => {
+    row.addEventListener('click', (e) => {
+      // Avoid triggering when clicking inside form buttons
+      if (e.target.closest('form') || e.target.closest('button') || e.target.closest('a')) return;
+      const id = row.getAttribute('data-quiz-id');
+      if (id) window.location.href = 'admin_quiz_manage.php?edit=' + encodeURIComponent(id);
+    });
+  });
+
+  // Helper notice if buttons somehow not visible
+  const anyActionCell = document.querySelector('th i.bi-gear');
+  if (anyActionCell) {
+    const firstEditBtn = document.querySelector('a[title="Edit Quiz"]');
+    if (!firstEditBtn) {
+      const helper = document.createElement('div');
+      helper.className = 'alert alert-warning mt-3';
+      helper.innerHTML = '<strong>Notice:</strong> Action buttons hidden by browser / CSS. Click a row to edit. Clear cache if issue persists.';
+      document.querySelector('.card-body-enhanced')?.prepend(helper);
+    }
+  }
 })();
 </script>
 </body>

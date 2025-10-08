@@ -68,9 +68,8 @@ function compute_progress(mysqli $db, int $dept_id, int $user_id): array {
             $totalSpeakers++;
             // Evaluation status
             $evalDone = false;
-            if ($chk = $db->prepare("SELECT 1 FROM speaker_evaluations WHERE speaker_id=? AND user_id=? LIMIT 1")) {
-                $chk->bind_param('ii',$spId,$user_id); $chk->execute(); $chk->bind_result($d); if($chk->fetch()) $evalDone=true; $chk->close();
-            }
+            if ($chk = $db->prepare("SELECT 1 FROM speaker_evaluations WHERE speaker_id=? AND user_id=? LIMIT 1")) { $chk->bind_param('ii',$spId,$user_id); $chk->execute(); $chk->bind_result($d); if($chk->fetch()) $evalDone=true; $chk->close(); }
+            if (!$evalDone && $chk = $db->prepare("SELECT 1 FROM speaker_eval_responses WHERE speaker_id=? AND user_id=? LIMIT 1")) { $chk->bind_param('ii',$spId,$user_id); $chk->execute(); $chk->bind_result($dd); if($chk->fetch()) $evalDone=true; $chk->close(); }
             if ($evalDone) $evalCompleted++; else $evalRemaining[] = $spId;
 
             // Quiz requirement detection
@@ -136,18 +135,54 @@ if ($method === 'GET') {
     if ($err) { http_response_code(400); echo json_encode(['ok'=>false,'error'=>$err]); exit; }
     $progress = compute_progress($db,$dept_id,$user_id);
 
-    // Existing certificate check
+    // Existing completion certificate check
     $existing = null;
     if ($st = $db->prepare('SELECT file_path, generated_at FROM sub_department_certificates WHERE user_id=? AND technical_department_id=? LIMIT 1')) {
-        $st->bind_param('ii',$user_id,$dept_id); $st->execute(); $st->bind_result($fp,$gen); if ($st->fetch()) $existing=['file_path'=>$fp,'generated_at'=>$gen]; $st->close();
+        $st->bind_param('ii',$user_id,$dept_id); $st->execute(); $st->bind_result($fp,$gen); if ($st->fetch()) $existing=['file_path'=>$fp,'generated_at'=>$gen,'kind'=>'completion']; $st->close();
     }
-    echo json_encode([
-        'ok'=>true,
-        'department'=>['id'=>$dept_id,'name'=>$dept['name']],
-        'progress'=>$progress,
-        'complete'=>$progress['complete'],
-        'certificate'=>$existing
-    ]);
+
+    // Attendance table (auto-migrate)
+    @ $db->query("CREATE TABLE IF NOT EXISTS sub_department_attendance_certificates (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      user_id INT NOT NULL,
+      technical_department_id INT NOT NULL,
+      file_path VARCHAR(255) NOT NULL,
+      generated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE KEY uniq_user_dept_att (user_id, technical_department_id),
+      KEY idx_dept_att (technical_department_id),
+      KEY idx_user_att (user_id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+
+    // Existing attendance certificate
+    $attExisting = null;
+    if ($st = $db->prepare('SELECT file_path, generated_at FROM sub_department_attendance_certificates WHERE user_id=? AND technical_department_id=? LIMIT 1')) {
+        $st->bind_param('ii',$user_id,$dept_id); $st->execute(); $st->bind_result($afp,$agen); if($st->fetch()) $attExisting=['file_path'=>$afp,'generated_at'=>$agen,'kind'=>'attendance']; $st->close();
+    }
+
+    // Attendance template presence (department specific first)
+    $attTemplate = null;
+    if ($st = $db->prepare("SELECT id FROM certificates WHERE type='sub_program_attendance' AND scope_binding='sub_program' AND (scope_identifier=? OR scope_identifier='' OR scope_identifier IS NULL) ORDER BY CASE WHEN scope_identifier=? THEN 0 ELSE 1 END LIMIT 1")) {
+        $st->bind_param('ii',$dept_id,$dept_id); $st->execute(); $st->bind_result($tid); if($st->fetch()) $attTemplate=$tid; $st->close();
+    }
+
+        // Completion template presence (row in department_certificate_templates)
+        $completionTemplateAssigned = false;
+        if ($chk = $db->prepare('SELECT 1 FROM department_certificate_templates WHERE technical_department_id=? LIMIT 1')) {
+                $chk->bind_param('i',$dept_id); $chk->execute(); $chk->bind_result($dummy); if($chk->fetch()) $completionTemplateAssigned=true; $chk->close();
+        }
+
+        echo json_encode([
+                'ok'=>true,
+                'department'=>['id'=>$dept_id,'name'=>$dept['name']],
+                'progress'=>$progress,
+                'complete'=>$progress['complete'],
+                'certificate'=>$existing,
+                'completion_template_assigned'=>$completionTemplateAssigned,
+                'attendance'=>[
+                    'template_assigned'=> $attTemplate ? true:false,
+                    'certificate'=>$attExisting
+                ]
+        ]);
     exit;
 }
 
@@ -158,14 +193,113 @@ $data = json_decode($raw,true) ?: [];
 if ($err) { http_response_code(400); echo json_encode(['ok'=>false,'error'=>$err]); exit; }
 
 $progress = compute_progress($db,$dept_id,$user_id);
-if (!$progress['complete']) {
-    http_response_code(403);
-    echo json_encode([
-        'ok'=>false,
-        'error'=>'Department incomplete',
-        'progress'=>$progress
-    ]);
+
+// Attendance table ensure (used if completion not yet ready or explicitly requested)
+@ $db->query("CREATE TABLE IF NOT EXISTS sub_department_attendance_certificates (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  user_id INT NOT NULL,
+  technical_department_id INT NOT NULL,
+  file_path VARCHAR(255) NOT NULL,
+  generated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE KEY uniq_user_dept_att (user_id, technical_department_id),
+  KEY idx_dept_att (technical_department_id),
+  KEY idx_user_att (user_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+
+// Helper to generate attendance certificate (generic certificates table template)
+function generate_attendance_certificate(mysqli $db, int $user_id, int $dept_id): array {
+    // Select best template for this department
+    if (!$st = $db->prepare("SELECT * FROM certificates WHERE type='sub_program_attendance' AND scope_binding='sub_program' AND (scope_identifier=? OR scope_identifier='' OR scope_identifier IS NULL) ORDER BY CASE WHEN scope_identifier=? THEN 0 ELSE 1 END LIMIT 1")) {
+        return ['error'=>'Template query failed'];
+    }
+    $st->bind_param('ii',$dept_id,$dept_id); $st->execute(); $res=$st->get_result(); $tpl=$res->fetch_assoc(); $st->close();
+    if(!$tpl) return ['error'=>'No attendance template'];
+
+    // Check existing
+    if($chk=$db->prepare('SELECT file_path FROM sub_department_attendance_certificates WHERE user_id=? AND technical_department_id=? LIMIT 1')){
+        $chk->bind_param('ii',$user_id,$dept_id); $chk->execute(); $chk->bind_result($efp); if($chk->fetch()){ $chk->close(); return ['already'=>true,'file_path'=>$efp]; } $chk->close();
+    }
+
+    // Load user
+    $user_name='Participant';
+    if($su=$db->prepare('SELECT name FROM users WHERE id=? LIMIT 1')){ $su->bind_param('i',$user_id); $su->execute(); $su->bind_result($user_name); $su->fetch(); $su->close(); }
+    // Department name
+    $deptName='Department'; if($sd=$db->prepare('SELECT name FROM technical_departments WHERE id=? LIMIT 1')){ $sd->bind_param('i',$dept_id); $sd->execute(); $sd->bind_result($deptName); $sd->fetch(); $sd->close(); }
+
+    // Prepare tokens
+    // Safe access with null coalesce to avoid notices contaminating JSON output
+    $fmt = $tpl['cert_number_format'] ?? 'NC-{YYYY}-{SEQ4}';
+    $seq4 = str_pad((string)random_int(0,9999),4,'0',STR_PAD_LEFT);
+    $certNumber = str_replace(
+        ['{YYYY}','{MM}','{DD}','{SEQ4}','{USER_ID}'],
+        [date('Y'),date('m'),date('d'),$seq4,$user_id],
+        $fmt
+    );
+
+    $awardeeRaw = $tpl['cert_awardee_name'] ?? '{USER_NAME}';
+    $seminarRaw = $tpl['seminar_title'] ?? '{DEPARTMENT_NAME}';
+    $awardeeText = str_replace(['{USER_NAME}','{NAME}','{FULL_NAME}'],$user_name,$awardeeRaw);
+    $seminarText = str_replace(['{DEPARTMENT_NAME}','{DEPARTMENT}','{DEPT}'],$deptName,$seminarRaw);
+    $seminarText = str_replace(['{CERT_NUMBER}'],$certNumber,$seminarText);
+    $awardeeText = str_replace(['{CERT_NUMBER}'],$certNumber,$awardeeText);
+
+    $bgRel = $tpl['bg_url'] ?? '';
+    $bgData=''; if($bgRel){ $abs=__DIR__.'/../'.str_replace('..','',$bgRel); if(is_file($abs)){ $data=@file_get_contents($abs); if($data!==false){ $mime = str_ends_with(strtolower($bgRel),'.png')?'image/png':'image/jpeg'; $bgData='data:'.$mime.';base64,'.base64_encode($data); } } }
+
+    // Font + positions
+    $showAwardee = (int)($tpl['show_awardee']??1)===1; $showSeminar=(int)($tpl['show_seminar']??1)===1; $showNumber=(int)($tpl['show_number']??1)===1;
+    $ax=(float)($tpl['pos_cert_awardee_name_x']??0); $ay=(float)($tpl['pos_cert_awardee_name_y']??0);
+    $sx=(float)($tpl['pos_seminar_title_x']??0); $sy=(float)($tpl['pos_seminar_title_y']??0);
+    $nx=(float)($tpl['pos_cert_number_x']??0); $ny=(float)($tpl['pos_cert_number_y']??0);
+    $faFam=$tpl['font_awardee_family']??'Helvetica'; $faSize=(int)($tpl['font_awardee_size_px']??46); $faCol=$tpl['font_awardee_color']??'#000000';
+    $fsFam=$tpl['font_seminar_family']??'Helvetica'; $fsSize=(int)($tpl['font_seminar_size_px']??24); $fsCol=$tpl['font_seminar_color']??'#000000';
+    $fnFam=$tpl['font_number_family']??'Helvetica'; $fnSize=(int)($tpl['font_number_size_px']??16); $fnCol=$tpl['font_number_color']??'#000000';
+
+    // Signatures for this certificate template
+    $sigRows=[]; if($sg=$db->prepare('SELECT indicator,signature_url,pos_x,pos_y,width_pct FROM certificate_signatures WHERE certificate_id=? AND enabled=1')){ $sg->bind_param('i',$tpl['id']); $sg->execute(); $res=$sg->get_result(); while($row=$res->fetch_assoc()) $sigRows[]=$row; $sg->close(); }
+
+    $sigHtml=''; foreach($sigRows as $sg){ $srel=$sg['signature_url']; $sdata=''; if($srel){ $sabs=__DIR__.'/../'.str_replace('..','',$srel); if(is_file($sabs)){ $d=@file_get_contents($sabs); if($d!==false){ $mime=str_ends_with(strtolower($srel),'.png')?'image/png':'image/jpeg'; $sdata='data:'.$mime.';base64,'.base64_encode($d); } } } if($sdata){ $sigHtml.='<img src="'.htmlspecialchars($sdata).'" style="position:absolute;left:'.(float)$sg['pos_x'].'%;top:'.(float)$sg['pos_y'].'%;width:'.(float)$sg['width_pct'].'%;height:auto;" />'; } }
+
+    $html='<!DOCTYPE html><html><head><meta charset="utf-8"><style>@page{margin:0;}body{margin:0;font-family:Helvetica,Arial,sans-serif;} .cv{position:relative;width:100%;min-height:600px;} .bg{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;} .txt{position:absolute;white-space:pre-wrap;line-height:1.15;font-weight:500;} </style></head><body><div class="cv">';
+    if($bgData) $html.='<img class="bg" src="'.htmlspecialchars($bgData).'" />';
+    if($showAwardee) $html.='<div class="txt" style="left:'.$ax.'%;top:'.$ay.'%;font-family:'.htmlspecialchars($faFam).';font-size:'.$faSize.'px;color:'.htmlspecialchars($faCol).';">'.htmlspecialchars($awardeeText).'</div>';
+    if($showSeminar) $html.='<div class="txt" style="left:'.$sx.'%;top:'.$sy.'%;font-family:'.htmlspecialchars($fsFam).';font-size:'.$fsSize.'px;color:'.htmlspecialchars($fsCol).';">'.htmlspecialchars($seminarText).'</div>';
+    if($showNumber) $html.='<div class="txt" style="left:'.$nx.'%;top:'.$ny.'%;font-family:'.htmlspecialchars($fnFam).';font-size:'.$fnSize.'px;color:'.htmlspecialchars($fnCol).';">'.htmlspecialchars($certNumber).'</div>';
+    $html.=$sigHtml;
+    $html.='<div style="position:absolute;right:14px;bottom:10px;font-size:11px;color:#444;">Attendance Certificate</div>';
+    $html.='</div></body></html>';
+
+    $dom = new Dompdf(['defaultFont'=>'Helvetica']);
+    $dom->setPaper('A4','landscape');
+    $dom->loadHtml($html,'UTF-8');
+    $dom->render();
+    $dir = __DIR__.'/../uploads/certificates/sub_departments_attendance'; if(!is_dir($dir)) @mkdir($dir,0775,true);
+    $file='subdept_att_'.$dept_id.'_'.$user_id.'_'.substr(sha1($user_id.$dept_id.microtime(true)),0,8).'.pdf';
+    if(file_put_contents($dir.'/'.$file,$dom->output())===false) return ['error'=>'Save failed'];
+    $rel='uploads/certificates/sub_departments_attendance/'.$file;
+    if($ins=$db->prepare('INSERT INTO sub_department_attendance_certificates (user_id,technical_department_id,file_path) VALUES (?,?,?)')){ $ins->bind_param('iis',$user_id,$dept_id,$rel); if(!$ins->execute()) { $ins->close(); return ['error'=>'DB insert failed']; } $ins->close(); }
+    return ['file_path'=>$rel,'already'=>false];
+}
+
+// Explicit kind handling
+$requestedKind = isset($data['kind']) ? strtolower(trim((string)$data['kind'])) : '';
+if ($requestedKind === 'attendance') {
+    if(!$progress['complete']) { http_response_code(403); echo json_encode(['ok'=>false,'error'=>'Attendance criteria not met','kind'=>'attendance','progress'=>$progress,'complete'=>$progress['complete']]); exit; }
+    $attendanceResult = generate_attendance_certificate($db,$user_id,$dept_id);
+    if (!empty($attendanceResult['error'])) { http_response_code(400); echo json_encode(['ok'=>false,'error'=>$attendanceResult['error'],'kind'=>'attendance','progress'=>$progress,'complete'=>$progress['complete']]); }
+    else { echo json_encode(['ok'=>true,'kind'=>'attendance'] + $attendanceResult + ['progress'=>$progress,'complete'=>$progress['complete']]); }
     exit;
+} elseif ($requestedKind === 'completion') {
+    if (!$progress['complete']) {
+        http_response_code(403);
+        echo json_encode(['ok'=>false,'error'=>'Completion criteria not met','kind'=>'completion','progress'=>$progress,'complete'=>false]);
+        exit;
+    }
+    // proceed to completion generation below
+} else {
+    // Auto mode (backward compatibility). Now strictly require completion; no attendance fallback here.
+    if (!$progress['complete']) { http_response_code(403); echo json_encode(['ok'=>false,'error'=>'Department incomplete','progress'=>$progress,'complete'=>false]); exit; }
+    // else fall through to completion generation below
 }
 
 // Existing certificate reuse (re-check complete with updated quiz requirement)
@@ -353,4 +487,4 @@ if ($ins = $db->prepare('INSERT INTO sub_department_certificates (user_id,techni
     $ins->close();
 }
 
-echo json_encode(['ok'=>true,'already'=>false,'file_path'=>$relPath,'progress'=>$progress]);
+echo json_encode(['ok'=>true,'already'=>false,'file_path'=>$relPath,'progress'=>$progress,'kind'=>'completion']);

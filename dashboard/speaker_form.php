@@ -211,6 +211,26 @@ if ($user_id > 0) {
 if (!$hasEvaluation && !empty($_SESSION['evaluated_speakers'][$speakerId])) {
     $hasEvaluation = true;
 }
+// NEW: also consider dynamic evaluation system (speaker_eval_responses)
+if (!$hasEvaluation && db_table_exists($db, 'speaker_eval_responses')) {
+  $user_email = trim((string)($_SESSION['user_email'] ?? $_SESSION['email'] ?? ''));
+  if ($user_id > 0) {
+    if ($st = $db->prepare("SELECT 1 FROM speaker_eval_responses WHERE speaker_id = ? AND user_id = ? LIMIT 1")) {
+      $st->bind_param('ii', $speakerId, $user_id);
+      $st->execute(); $st->bind_result($d);
+      if ($st->fetch()) { $hasEvaluation = true; }
+      $st->close();
+    }
+  }
+  if (!$hasEvaluation && $user_email !== '') {
+    if ($st = $db->prepare("SELECT 1 FROM speaker_eval_responses WHERE speaker_id = ? AND (user_email = ? OR email = ?) LIMIT 1")) {
+      $st->bind_param('iss', $speakerId, $user_email, $user_email);
+      $st->execute(); $st->bind_result($d);
+      if ($st->fetch()) { $hasEvaluation = true; }
+      $st->close();
+    }
+  }
+}
 
 // NEW: Locks (per speaker, strictly sequential)
 $quizLocked = $hasSubmitted || !$hasQuiz;                 // Quiz first; unlocked if not yet submitted

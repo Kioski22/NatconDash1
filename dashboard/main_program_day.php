@@ -74,12 +74,8 @@ $dayId = isset($_GET['day_id']) ? (int)$_GET['day_id'] : 0; if ($dayId <= 0) { h
       <!-- Navbar Links -->
       <div class="collapse navbar-collapse" id="navbarNav">
         <ul class="navbar-nav ms-auto align-items-center">
-          <li class="nav-item">
-            <a class="nav-link fw-semibold px-3" href="programs.php?day_id=<?= (int)$dayId ?>">Programs</a>
-          </li>
-          <li class="nav-item">
-            <a class="nav-link fw-semibold px-3" href="dashboard.php">Dashboard</a>
-          </li>
+          <li class="nav-item"><a class="nav-link fw-semibold px-3" href="programs.php">Programs</a></li>
+          <li class="nav-item"><a class="nav-link fw-semibold px-3" href="dashboard.php">Dashboard</a></li>
         </ul>
       </div>
     </div>
@@ -87,11 +83,27 @@ $dayId = isset($_GET['day_id']) ? (int)$_GET['day_id'] : 0; if ($dayId <= 0) { h
 
 <div class="container py-5">
   <div id="pageHeader" class="text-center mb-4">
+    <div class="mb-3 text-start">
+      <a href="programs.php" class="btn btn-sm btn-outline-light rounded-pill">&lt; Back to Programs</a>
+    </div>
     <h1 class="display-6 fw-bold mb-1" id="dayTitle">Main Program</h1>
     <p class="text-center mb-4 small opacity-75" id="daySubtitle">Loading day information...</p>
   </div>
   <div id="roomsContainer"></div>
   <div id="emptyState" class="alert alert-warning text-dark d-none">No speakers scheduled for this day yet.</div>
+  <div id="completionBlock" class="mt-5 d-none">
+    <div class="p-4 rounded-4" style="background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.25);">
+      <h4 class="fw-bold mb-2">Day Progress</h4>
+      <p class="small mb-2 opacity-75" id="completionText">Checking your progress...</p>
+      <p class="small mb-3 opacity-50" id="quizText"></p>
+      <div class="progress mb-2" style="height:10px;">
+        <div id="completionBar" class="progress-bar bg-success" style="width:0%"></div>
+      </div>
+      <div class="alert alert-info text-dark mt-3 mb-0 py-2 px-3 small" id="overallHint" style="background:rgba(255,255,255,0.85);">
+        Complete all required evaluations (and quizzes where present) for <strong>every Main Program speaker across all days</strong> to unlock the Overall Main Program Certificate. Go back to the Main Program overview to generate it.
+      </div>
+    </div>
+  </div>
 </div>
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
 <script>
@@ -142,6 +154,26 @@ $dayId = isset($_GET['day_id']) ? (int)$_GET['day_id'] : 0; if ($dayId <= 0) { h
       document.getElementById('daySubtitle').textContent = 'Unable to load day data.';
       console.error(err);
     });
+
+  // Fetch completion status
+  function loadCompletion(){
+    fetch('../api/main_program_day_completion.php?day_id=' + encodeURIComponent(dayId), {credentials:'same-origin'})
+      .then(r=> r.json())
+      .then(data => {
+        if(!data || !data.ok) return;
+        const block = document.getElementById('completionBlock'); block.classList.remove('d-none');
+        const evalPct = data.eval_total>0 ? Math.round(data.eval_completed * 100 / data.eval_total) : 0;
+        document.getElementById('completionBar').style.width = evalPct + '%';
+        document.getElementById('completionText').textContent = data.eval_completed + ' of ' + data.eval_total + ' evaluations completed.';
+        document.getElementById('quizText').textContent = 'Quizzes: ' + data.quiz_completed + ' of ' + data.quiz_required + ' completed';
+  // No per-day certificate anymore; overall certificate handled on programs.php (integrated panel)
+      })
+      .catch(()=>{});
+  }
+  loadCompletion();
+
+  // Refresh progress periodically
+  setInterval(loadCompletion,15000);
 </script>
 </body>
 </html>

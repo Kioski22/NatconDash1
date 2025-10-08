@@ -347,8 +347,8 @@ $userName = $_SESSION['user_name'] ?? 'Account';
         <a class="navbar-brand d-flex align-items-center" href="#">
           <img src="../image/natcon.jpg" alt="PSME Logo" class="me-3 rounded-circle" style="height:55px;">
           <div>
-            <span class="fs-5 fw-bold d-block">73rd PSME</span>
-            <small class="d-none d-md-block fw-medium">National Convention</small>
+            <span class="fs-5 fw-bold d-block">73rd PSME National Convention</span>
+            
           </div>
         </a>
 
@@ -428,11 +428,17 @@ $userName = $_SESSION['user_name'] ?? 'Account';
               Connect, learn, and innovate with industry leaders.
             </p>
             <div class="d-flex flex-column flex-sm-row gap-3 justify-content-center">
-              <a href="#function-room" class="btn btn-primary btn-lg rounded-pill px-5 py-3 fw-medium">
+              <?php if(!$isLoggedIn): ?>
+              <a href="../Credentials/login.php" id="heroGetStartedBtn" class="btn btn-primary btn-lg rounded-pill px-5 py-3 fw-medium">
                 <i class="fas fa-rocket me-2"></i>Get Started
               </a>
+              <?php else: ?>
+              <a href="programs.php" class="btn btn-primary btn-lg rounded-pill px-5 py-3 fw-medium">
+                <i class="fas fa-rocket me-2"></i>Go to Programs
+              </a>
+              <?php endif; ?>
               <a href="#program" class="btn btn-outline-primary btn-lg rounded-pill px-5 py-3 fw-medium">
-                <i class="fas fa-calendar me-2"></i>View Program
+                <i class="fa  s fa-calendar me-2"></i>View Program
               </a>
             </div>
           </div>
@@ -645,6 +651,10 @@ $userName = $_SESSION['user_name'] ?? 'Account';
       }
       if (signupBtn) {
         signupBtn.addEventListener('click', (e) => { e.preventDefault(); handleRedirect('../Credentials/signup.php','Redirecting to Sign Up...','Loading registration form'); });
+      }
+      const heroBtn = document.getElementById('heroGetStartedBtn');
+      if(heroBtn){
+        heroBtn.addEventListener('click', (e)=>{ e.preventDefault(); handleRedirect('../Credentials/login.php','Redirecting to Login...','Preparing your session'); });
       }
     })();
   </script>

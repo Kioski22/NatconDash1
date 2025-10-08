@@ -27,6 +27,7 @@ if ($user_id > 0 && !empty($speakers)) {
         // evaluations
         $evalMap = [];
         if ($q=$db->query("SELECT speaker_id FROM speaker_evaluations WHERE user_id={$user_id} AND speaker_id IN ($idList)")) { while($r=$q->fetch_assoc()) $evalMap[(int)$r['speaker_id']]=true; }
+        if ($q=$db->query("SELECT speaker_id FROM speaker_eval_responses WHERE user_id={$user_id} AND speaker_id IN ($idList)")) { while($r=$q->fetch_assoc()) $evalMap[(int)$r['speaker_id']]=true; }
         // quizzes existence
         $quizExists = [];
         if ($q=$db->query("SELECT speaker_id FROM quizzes WHERE speaker_id IN ($idList)")) { while($r=$q->fetch_assoc()) $quizExists[(int)$r['speaker_id']]=true; }
@@ -49,6 +50,34 @@ if ($user_id > 0 && !empty($speakers)) {
 
 $departments=[]; // dept_id => ['name'=>..., 'speakers'=>[]]
 foreach($speakers as $sp){ $did=(int)$sp['technical_department_id']; if(!isset($departments[$did])){ $departments[$did]=['department_id'=>$did,'department_name'=>$sp['dept_name']??'Department','speakers'=>[]]; } $departments[$did]['speakers'][]=$sp; }
+
+// Include departments that have an explicit attendance template even if no speakers on this day
+// (Helps users generate attendance certificates early.)
+if ($resTpl = $db->query("SELECT DISTINCT scope_identifier FROM certificates WHERE type='sub_program_attendance' AND scope_binding='sub_program' AND scope_identifier<>''")) {
+        $templateDeptIds = [];
+        while($r=$resTpl->fetch_assoc()){ $sid = (int)$r['scope_identifier']; if($sid>0) $templateDeptIds[$sid]=true; }
+        $resTpl->close();
+        if ($templateDeptIds) {
+                // Fetch names for those not already present
+                $missing = array_diff(array_keys($templateDeptIds), array_keys($departments));
+                if ($missing) {
+                        $idList = implode(',', array_map('intval',$missing));
+                        if ($q = $db->query("SELECT id,name FROM technical_departments WHERE id IN ($idList)")) {
+                                while($row=$q->fetch_assoc()) {
+                                        $did=(int)$row['id'];
+                                        if(!isset($departments[$did])) {
+                                                $departments[$did] = [
+                                                        'department_id'=>$did,
+                                                        'department_name'=>$row['name'] ?: 'Department',
+                                                        'speakers'=>[]
+                                                ];
+                                        }
+                                }
+                                $q->close();
+                        }
+                }
+        }
+}
 
 echo json_encode(['day'=>$day,'departments'=>$departments]);
 ?>

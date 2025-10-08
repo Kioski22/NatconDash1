@@ -35,8 +35,47 @@ $intended = $_SESSION['intended_url'] ?? null; // keep until after successful lo
       .login-form{ flex:1 1 100%; padding:1.5rem; }
     }
   </style>
+  <style>
+    /* Navbar styling borrowed from dashboard for consistency */
+    .navbar {
+      backdrop-filter: blur(20px);
+      background: rgba(255,255,255,0.95)!important;
+      border-bottom:1px solid #e5e7eb;
+    }
+    .navbar-brand span {background:linear-gradient(135deg,#111e6c,#e27900);-webkit-background-clip:text;-webkit-text-fill-color:transparent;}
+    .nav-link {font-weight:500;}
+    .nav-link:hover {color:#111e6c!important;}
+    .btn-nav-auth {border:2px solid #111e6c;color:#111e6c;background:transparent;}
+    .btn-nav-auth:hover {background:#111e6c;color:#fff;}
+  </style>
 </head>
 <body>
+  <!-- Site Navbar -->
+  <nav class="navbar navbar-expand-lg navbar-light shadow-sm fixed-top">
+    <div class="container">
+      <a class="navbar-brand d-flex align-items-center" href="../dashboard/dashboard.php">
+        <img src="../image/natcon.jpg" alt="PSME Logo" class="me-3 rounded-circle" style="height:55px;">
+        <div>
+          <span class="fs-5 fw-bold d-block">73rd PSME</span>
+          <small class="d-none d-md-block fw-medium">National Convention</small>
+        </div>
+      </a>
+      <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navLogin">
+        <span class="navbar-toggler-icon"></span>
+      </button>
+      <div class="collapse navbar-collapse" id="navLogin">
+        <ul class="navbar-nav ms-auto align-items-center">
+          <li class="nav-item"><a class="nav-link" href="../dashboard/dashboard.php">Home</a></li>
+          <li class="nav-item"><a class="nav-link" href="../dashboard/about.php">About</a></li>
+          <li class="nav-item"><a class="nav-link" href="../dashboard/programs.php">Programs</a></li>
+          <li class="nav-item ms-2 d-flex gap-2">
+            <a href="signup.php" class="btn btn-nav-auth rounded-pill px-4 py-2 fw-medium">Sign Up</a>
+          </li>
+        </ul>
+      </div>
+    </div>
+  </nav>
+  <div style="height:80px"></div>
 
 <div class="login-container">
   <div class="login-card">
@@ -55,7 +94,10 @@ $intended = $_SESSION['intended_url'] ?? null; // keep until after successful lo
         <input type="email" id="email" name="email" placeholder="Enter your email" required />
 
         <label for="password">Password</label>
-        <input type="password" id="password" name="password" placeholder="Enter your password" required />
+        <div class="password-wrapper mb-2">
+          <input type="password" id="password" name="password" placeholder="Enter your password" required />
+          <button type="button" class="toggle-pass-btn" id="toggleLoginPwd" aria-label="Show password" style="position:absolute;top:50%;right:10px;transform:translateY(-50%);background:transparent;border:none;color:#0d6efd;cursor:pointer;padding:4px;display:flex;align-items:center;justify-content:center;z-index:100;min-width:28px;min-height:28px;">👁️</button>
+        </div>
 
         <div class="forgot-password">
           <a href="forgot_password.php">Forgot Password?</a>
@@ -63,12 +105,10 @@ $intended = $_SESSION['intended_url'] ?? null; // keep until after successful lo
 
         <button type="submit">Login</button>
 
-        <div class="forgot-password">
-          <a href="signup.php">Don't have an account? Sign up</a>
-        </div>
-
-        <div class="dashboard fw-bold fs-6 mt-5 text-center">
-          <a href="../dashboard/dashboard.php">Back to Dashboard</a>
+        <div class="mt-5 text-center small">
+          <span class="me-2">Don't have an account?</span><a href="signup.php" class="fw-semibold">Sign up</a>
+          <span class="mx-2 text-muted">•</span>
+          <a href="../dashboard/dashboard.php" class="fw-semibold">Back to Dashboard</a>
         </div>
 
         <!-- Redirect Overlay (shown only on successful login) -->
@@ -102,6 +142,8 @@ $intended = $_SESSION['intended_url'] ?? null; // keep until after successful lo
 <script>
 (function(){
   const form = document.getElementById('loginForm');
+  const pwd = document.getElementById('password');
+  const togglePwd = document.getElementById('toggleLoginPwd');
   const overlay = document.getElementById('loadingOverlay');
   const redirectTitle = document.getElementById('redirectTitle');
   const redirectMsg = document.getElementById('redirectMsg');
@@ -171,6 +213,36 @@ $intended = $_SESSION['intended_url'] ?? null; // keep until after successful lo
       }
     }
   });
+
+  const eyeOpen = '<svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8Z"/><circle cx="12" cy="12" r="3"/></svg>';
+  const eyeClosed = '<svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3l18 18"/><path d="M10.73 10.73a3 3 0 004.24 4.24"/><path d="M6.1 6.1A10.94 10.94 0 001 12s4 8 11 8a10.94 10.94 0 005.9-1.9M14.12 9.88 20 4"/></svg>';
+  
+  function renderEye(){
+    if(!togglePwd) return;
+    const isHidden = pwd.type === 'password';
+    togglePwd.innerHTML = isHidden ? eyeOpen : eyeClosed;
+    togglePwd.setAttribute('aria-label', (isHidden ? 'Show' : 'Hide') + ' password');
+  }
+  
+  // Initialize eye toggle
+  if(togglePwd && pwd){
+    // Set initial eye icon
+    setTimeout(() => {
+      renderEye();
+    }, 100);
+    
+    togglePwd.addEventListener('click', ()=>{ 
+      pwd.type = pwd.type==='password' ? 'text':'password'; 
+      renderEye(); 
+    });
+    togglePwd.addEventListener('keydown', e=>{ 
+      if(e.key==='Enter'||e.key===' '){ 
+        e.preventDefault(); 
+        pwd.type = pwd.type==='password' ? 'text':'password'; 
+        renderEye(); 
+      }
+    });
+  }
 })();
 // Inject intended URL from PHP session (if any)
 window.__INTENDED_URL__ = <?php echo json_encode($intended); ?>;

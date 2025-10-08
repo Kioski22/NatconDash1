@@ -43,10 +43,11 @@ if (!isset($_SESSION['user_id'])) {
     exit;
 }
 
-// --- Role check: admin only ---
-if (!isset($_SESSION['user_role']) || $_SESSION['user_role'] !== 'admin') {
+// --- Role check: allow flexible matching for admin / super (case-insensitive, trims) ---
+$role = strtolower(trim((string)($_SESSION['user_role'] ?? '')));
+if (!in_array($role, ['admin','super','super_admin'], true)) {
     http_response_code(403);
-    echo json_encode(['success' => false, 'error' => 'Forbidden: admin only']);
+    echo json_encode(['success' => false, 'error' => 'Forbidden: admin/super only', 'debug_role' => $role]);
     exit;
 }
 
@@ -116,9 +117,18 @@ if ($result->num_rows === 0) {
 $existing = $result->fetch_assoc();
 $selectStmt->close();
 
-// If value is already same, short-circuit (optional)
+// If value is already same, short-circuit (optional) include diagnostic meta
 if ((int)$existing['is_enabled'] === (int)$is_enabled) {
-    echo json_encode(['success' => true, 'message' => 'No change', 'day' => ['id' => (int)$existing['id'], 'is_enabled' => (int)$existing['is_enabled']] ]);
+    echo json_encode([
+        'success' => true,
+        'message' => 'No change',
+        'day' => [
+            'id' => (int)$existing['id'],
+            'is_enabled' => (int)$existing['is_enabled']
+        ],
+        'changed' => false,
+        'previous_is_enabled' => (int)$existing['is_enabled']
+    ]);
     exit;
 }
 
@@ -151,6 +161,8 @@ echo json_encode([
     'day' => [
         'id' => (int)$day_id,
         'is_enabled' => (int)$is_enabled
-    ]
+    ],
+    'changed' => true,
+    'previous_is_enabled' => (int)$existing['is_enabled']
 ]);
 exit;

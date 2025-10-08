@@ -58,9 +58,9 @@ if (!function_exists('handle_photo_upload')) {
         if ($f['error'] !== UPLOAD_ERR_OK) {
             return null;
         }
-        $maxBytes = 2 * 1024 * 1024; // 2MB
-        if ($f['size'] > $maxBytes) {
-            return ['error' => 'Photo too large (max 2MB).'];
+    $maxBytes = 8 * 1024 * 1024; // 8MB
+    if ($f['size'] > $maxBytes) {
+      return ['error' => 'Photo too large (max 8MB).'];
         }
         $allowed = ['image/jpeg'=>'jpg', 'image/png'=>'png', 'image/gif'=>'gif'];
         $finfo = finfo_open(FILEINFO_MIME_TYPE);
@@ -389,268 +389,633 @@ if (isset($_GET['edit']) && is_numeric($_GET['edit'])) {
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <title>Speakers — Manage</title>
+  <title>Speakers — Manage | 73rd PSME National Convention</title>
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
   <style>
-    body { background:#f8f9fa; }
-    .speaker-photo { width:48px;height:48px;border-radius:6px;object-fit:cover; }
-    .small-muted { font-size:0.85rem; color:#6c757d; }
+    /* CSS Custom Properties */
+    :root {
+      --primary-gradient: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      --success-gradient: linear-gradient(135deg, #10b981 0%, #059669 100%);
+      --warning-gradient: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
+      --danger-gradient: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+      --info-gradient: linear-gradient(135deg, #06b6d4 0%, #0891b2 100%);
+      --shadow-soft: 0 2px 15px rgba(0,0,0,0.08);
+      --shadow-hover: 0 8px 30px rgba(0,0,0,0.12);
+      --border-radius: 12px;
+    }
+    
+    body {
+      font-family: 'Inter', system-ui, -apple-system, sans-serif;
+      background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+      min-height: 100vh;
+    }
+    
+    .main-container {
+      background: rgba(255, 255, 255, 0.95);
+      backdrop-filter: blur(10px);
+      border-radius: var(--border-radius);
+      box-shadow: var(--shadow-soft);
+      margin-top: 2rem;
+      margin-bottom: 2rem;
+    }
+    
+    .page-header {
+      background: var(--primary-gradient);
+      color: white;
+      padding: 2rem;
+      border-radius: var(--border-radius) var(--border-radius) 0 0;
+      position: relative;
+      overflow: hidden;
+    }
+    
+    .page-header::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      right: 0;
+      width: 100px;
+      height: 100px;
+      background: rgba(255, 255, 255, 0.1);
+      border-radius: 50%;
+      transform: translate(30px, -30px);
+    }
+    
+    .page-title {
+      margin: 0;
+      font-weight: 600;
+      font-size: 1.75rem;
+    }
+    
+    .page-subtitle {
+      margin: 0.5rem 0 0;
+      opacity: 0.9;
+      font-weight: 300;
+    }
+    
+    .card {
+      border: none;
+      border-radius: var(--border-radius);
+      box-shadow: var(--shadow-soft);
+      transition: all 0.3s ease;
+    }
+    
+    .card:hover {
+      box-shadow: var(--shadow-hover);
+      transform: translateY(-2px);
+    }
+    
+    .card-header {
+      background: rgba(248, 249, 250, 0.8);
+      border-bottom: 1px solid rgba(0, 0, 0, 0.05);
+      padding: 1.25rem;
+      border-radius: var(--border-radius) var(--border-radius) 0 0;
+    }
+    
+    .card-title {
+      font-weight: 600;
+      color: #2d3748;
+      margin-bottom: 0;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+    
+    .speaker-photo {
+      width: 48px;
+      height: 48px;
+      border-radius: 8px;
+      object-fit: cover;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+      transition: all 0.2s ease;
+    }
+    
+    .speaker-photo:hover {
+      transform: scale(1.05);
+      box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+    }
+    
+    .empty-photo {
+      width: 48px;
+      height: 48px;
+      border-radius: 8px;
+      background: linear-gradient(135deg, #e2e8f0 0%, #cbd5e1 100%);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #64748b;
+    }
+    
+    .small-muted {
+      font-size: 0.85rem;
+      color: #6c757d;
+    }
+    
+    .btn {
+      border-radius: 8px;
+      font-weight: 500;
+      transition: all 0.2s ease;
+      border: none;
+    }
+    
+    .btn-gradient-primary {
+      background: var(--primary-gradient);
+      color: white;
+    }
+    
+    .btn-gradient-primary:hover {
+      transform: translateY(-1px);
+      box-shadow: var(--shadow-soft);
+      color: white;
+    }
+    
+    .btn-gradient-success {
+      background: var(--success-gradient);
+      color: white;
+    }
+    
+    .btn-gradient-success:hover {
+      transform: translateY(-1px);
+      box-shadow: var(--shadow-soft);
+      color: white;
+    }
+    
+    .btn-gradient-danger {
+      background: var(--danger-gradient);
+      color: white;
+    }
+    
+    .btn-gradient-danger:hover {
+      transform: translateY(-1px);
+      box-shadow: var(--shadow-soft);
+      color: white;
+    }
+    
+    .form-control:focus, .form-select:focus {
+      border-color: #667eea;
+      box-shadow: 0 0 0 0.2rem rgba(102, 126, 234, 0.15);
+    }
+    
+    .table-hover tbody tr:hover {
+      background-color: rgba(102, 126, 234, 0.05);
+      transform: scale(1.005);
+      transition: all 0.2s ease;
+    }
+    
+    .badge {
+      padding: 0.5rem 0.75rem;
+      font-weight: 500;
+      border-radius: 20px;
+    }
+    
+    .bg-gradient-primary {
+      background: var(--primary-gradient) !important;
+    }
+    
+    .bg-gradient-warning {
+      background: var(--warning-gradient) !important;
+    }
+    
+    .alert {
+      border: none;
+      border-radius: var(--border-radius);
+      padding: 1rem 1.25rem;
+    }
+    
+    .btn-group-actions {
+      display: flex;
+      gap: 0.25rem;
+    }
   </style>
 </head>
 <body class="p-3">
-  <div class="container">
-    <div class="d-flex justify-content-between align-items-center mb-3">
-      <h4>Speaker Management</h4>
-      <a href="Admin_dashboard.php" class="btn btn-secondary btn-sm">Back</a>
-    </div>
-
-    <?php if (!empty($errors)): ?>
-      <div class="alert alert-danger"><ul class="mb-0"><?php foreach ($errors as $err): ?><li><?= e($err) ?></li><?php endforeach; ?></ul></div>
-    <?php endif; ?>
-    <?php if ($success): ?><div class="alert alert-success"><?= e($success) ?></div><?php endif; ?>
-
-    <div class="row">
-      <div class="col-lg-7">
-        <div class="card mb-3">
-          <div class="card-body">
-            <h6 class="card-title">Speakers</h6>
-            <?php if (empty($speakers)): ?>
-              <div class="text-muted">No speakers added yet.</div>
-            <?php else: ?>
-              <div class="table-responsive">
-                <table class="table table-sm align-middle">
-                  <thead>
-                    <tr><th>#</th><th>Photo</th><th>Name</th><th>Title</th><th>Program</th><th>Tech Dept</th><th>Day</th><th>Room</th><th>Time</th><th></th></tr>
-                  </thead>
-                  <tbody>
-                    <?php foreach ($speakers as $s): ?>
-                      <tr>
-                        <td><?= (int)$s['id'] ?></td>
-                        <td>
-                          <?php if (!empty($s['photo_url'])): ?>
-                            <img src="<?= e(asset_url($s['photo_url'])) ?>" class="speaker-photo" alt="">
-                          <?php else: ?>
-                            <div class="speaker-photo" style="background:#e9ecef"></div>
-                          <?php endif; ?>
-                        </td>
-                        <td><?= e($s['name']) ?></td>
-                        <td><?= e($s['title']) ?></td>
-                        <td><span class="badge bg-<?php echo ($s['program_type']??'main')==='sub'?'warning text-dark':'primary'; ?>"><?= e(strtoupper($s['program_type'] ?? 'main')) ?></span></td>
-                        <td><?= e($s['technical_department_name'] ?? ($s['program_type']==='sub' ? '—' : '')) ?></td>
-                        <td><?= e($s['day_label'] ?: '-') ?></td>
-                        <td><?= e($s['room_name'] ?: '-') ?></td>
-                        <td>
-                          <?php
-                            $t1 = $s['start_time'] ?? '';
-                            $t2 = $s['end_time'] ?? '';
-                            $timeText = $t1 . ($t2 ? ' - ' . $t2 : '');
-                            echo e($timeText ?: '-');
-                          ?>
-                        </td>
-                        <td class="text-end">
-                          <a href="admin_speaker_manage.php?edit=<?= (int)$s['id'] ?>" class="btn btn-sm btn-primary">Edit</a>
-                          <form method="post" class="d-inline" onsubmit="return confirm('Delete speaker?');">
-                            <input type="hidden" name="csrf_token" value="<?= e($_SESSION['csrf_token']) ?>">
-                            <input type="hidden" name="action" value="delete">
-                            <input type="hidden" name="id" value="<?= (int)$s['id'] ?>">
-                            <button class="btn btn-sm btn-danger">Delete</button>
-                          </form>
-                        </td>
-                      </tr>
-                    <?php endforeach; ?>
-                  </tbody>
-                </table>
-              </div>
-            <?php endif; ?>
+  <div class="container-fluid">
+    <div class="main-container">
+      <div class="page-header">
+        <div class="d-flex justify-content-between align-items-center">
+          <div>
+            <h1 class="page-title"><i class="bi bi-people-fill me-2"></i>Speaker Management</h1>
+            <p class="page-subtitle">Manage speakers, presentations, and schedule assignments</p>
           </div>
+          <a href="Admin_dashboard.php" class="btn btn-light btn-lg">
+            <i class="bi bi-arrow-left me-2"></i>Back to Dashboard
+          </a>
         </div>
       </div>
+      
+      <div class="p-4">
 
-      <div class="col-lg-5">
-        <div class="card mb-3">
-          <div class="card-body">
-            <?php if ($edit): ?>
-              <h6 class="card-title">Edit Speaker #<?= (int)$edit['id'] ?></h6>
+        <!-- Alerts -->
+        <?php if (!empty($errors)): ?>
+          <div class="alert alert-danger d-flex align-items-center">
+            <i class="bi bi-exclamation-triangle-fill me-2 fs-4"></i>
+            <div>
+              <strong>Please fix the following issues:</strong>
+              <ul class="mb-0 mt-1"><?php foreach ($errors as $err): ?><li><?= e($err) ?></li><?php endforeach; ?></ul>
+            </div>
+          </div>
+        <?php endif; ?>
+
+        <?php if ($success): ?>
+          <div class="alert alert-success d-flex align-items-center">
+            <i class="bi bi-check-circle-fill me-2 fs-4"></i>
+            <div><?= e($success) ?></div>
+          </div>
+        <?php endif; ?>
+
+        <!-- Speakers List -->
+        <div class="row">
+          <div class="col-lg-8">
+            <div class="card">
+              <div class="card-header">
+                <div class="d-flex align-items-center">
+                  <i class="bi bi-list-ul me-2 text-primary fs-5"></i>
+                  <h5 class="card-title mb-0">Speakers</h5>
+                  <span class="badge bg-secondary ms-auto"><?= count($speakers) ?> speakers</span>
+                </div>
+              </div>
+              <div class="card-body p-0">
+                <?php if (empty($speakers)): ?>
+                  <div class="text-center text-muted py-5">
+                    <i class="bi bi-person-plus fs-1 mb-3 d-block text-light"></i>
+                    <h6>No speakers added yet</h6>
+                    <p class="mb-0">Create your first speaker using the form.</p>
+                  </div>
+                <?php else: ?>
+                  <div class="table-responsive">
+                    <table class="table table-hover mb-0 align-middle">
+                      <thead class="table-light">
+                        <tr>
+                          <th class="fw-semibold">#</th>
+                          <th class="fw-semibold"><i class="bi bi-person-circle me-1"></i>Photo</th>
+                          <th class="fw-semibold"><i class="bi bi-person me-1"></i>Name</th>
+                          <th class="fw-semibold"><i class="bi bi-briefcase me-1"></i>Title</th>
+                          <th class="fw-semibold"><i class="bi bi-diagram-3 me-1"></i>Program</th>
+                          <th class="fw-semibold"><i class="bi bi-building me-1"></i>Tech Dept</th>
+                          <th class="fw-semibold"><i class="bi bi-calendar-day me-1"></i>Day</th>
+                          <th class="fw-semibold"><i class="bi bi-door-open me-1"></i>Room</th>
+                          <th class="fw-semibold"><i class="bi bi-clock me-1"></i>Time</th>
+                          <th class="fw-semibold text-center">Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        <?php foreach ($speakers as $s): ?>
+                          <tr>
+                            <td class="text-muted"><?= (int)$s['id'] ?></td>
+                            <td>
+                              <?php if (!empty($s['photo_url'])): ?>
+                                <img src="<?= e(asset_url($s['photo_url'])) ?>" class="speaker-photo" alt="<?= e($s['name']) ?>">
+                              <?php else: ?>
+                                <div class="empty-photo">
+                                  <i class="bi bi-person fs-5"></i>
+                                </div>
+                              <?php endif; ?>
+                            </td>
+                            <td>
+                              <div class="fw-medium"><?= e($s['name']) ?></div>
+                              <?php if (!empty($s['presentation_url'])): ?>
+                                <small class="text-success">
+                                  <i class="bi bi-file-earmark-slides me-1"></i>Has presentation
+                                </small>
+                              <?php endif; ?>
+                            </td>
+                            <td class="small"><?= e($s['title']) ?></td>
+                            <td>
+                              <span class="badge bg-gradient-<?php echo ($s['program_type']??'main')==='sub'?'warning':'primary'; ?> d-flex align-items-center" style="width: fit-content;">
+                                <?php if (($s['program_type']??'main')==='sub'): ?>
+                                  <i class="bi bi-diagram-2 me-1"></i>SUB
+                                <?php else: ?>
+                                  <i class="bi bi-house me-1"></i>MAIN
+                                <?php endif; ?>
+                              </span>
+                            </td>
+                            <td class="small"><?= e($s['technical_department_name'] ?? ($s['program_type']==='sub' ? 'Not assigned' : '—')) ?></td>
+                            <td><strong><?= e($s['day_label'] ?: '-') ?></strong></td>
+                            <td><?= e($s['room_name'] ?: '-') ?></td>
+                            <td class="small">
+                              <?php
+                                $t1 = $s['start_time'] ?? '';
+                                $t2 = $s['end_time'] ?? '';
+                                $timeText = $t1 . ($t2 ? ' - ' . $t2 : '');
+                                echo e($timeText ?: '-');
+                              ?>
+                            </td>
+                            <td>
+                              <div class="btn-group-actions justify-content-center">
+                                <a href="admin_speaker_manage.php?edit=<?= (int)$s['id'] ?>" 
+                                   class="btn btn-sm btn-gradient-primary" 
+                                   title="Edit Speaker">
+                                  <i class="bi bi-pencil"></i>
+                                </a>
+                                <form method="post" class="d-inline" onsubmit="return confirm('Are you sure you want to delete this speaker? This action cannot be undone.');">
+                                  <input type="hidden" name="csrf_token" value="<?= e($_SESSION['csrf_token']) ?>">
+                                  <input type="hidden" name="action" value="delete">
+                                  <input type="hidden" name="id" value="<?= (int)$s['id'] ?>">
+                                  <button class="btn btn-sm btn-gradient-danger" title="Delete Speaker">
+                                    <i class="bi bi-trash"></i>
+                                  </button>
+                                </form>
+                              </div>
+                            </td>
+                          </tr>
+                        <?php endforeach; ?>
+                      </tbody>
+                    </table>
+                  </div>
+                <?php endif; ?>
+              </div>
+            </div>
+          </div>
+
+          <!-- Add/Edit Form -->
+          <div class="col-lg-4">
+            <div class="card">
+              <div class="card-header">
+                <?php if ($edit): ?>
+                  <div class="d-flex align-items-center">
+                    <i class="bi bi-pencil-square me-2 text-warning fs-5"></i>
+                    <h5 class="card-title mb-0">Edit Speaker</h5>
+                    <span class="badge bg-warning ms-auto">#<?= (int)$edit['id'] ?></span>
+                  </div>
+                <?php else: ?>
+                  <div class="d-flex align-items-center">
+                    <i class="bi bi-person-plus me-2 text-success fs-5"></i>
+                    <h5 class="card-title mb-0">Add Speaker</h5>
+                  </div>
+                <?php endif; ?>
+              </div>
+              <div class="card-body">
+                <?php if ($edit): ?>
               <form method="post" enctype="multipart/form-data" novalidate>
                 <input type="hidden" name="csrf_token" value="<?= e($_SESSION['csrf_token']) ?>">
                 <input type="hidden" name="action" value="update">
                 <input type="hidden" name="id" value="<?= (int)$edit['id'] ?>">
 
-                <div class="mb-2">
-                  <label class="form-label">Name</label>
-                  <input name="name" class="form-control" required value="<?= e($edit['name']) ?>">
-                </div>
+                  <div class="mb-3">
+                    <label class="form-label fw-semibold">
+                      <i class="bi bi-person me-1 text-primary"></i>Speaker Name
+                    </label>
+                    <input name="name" class="form-control" required value="<?= e($edit['name']) ?>" placeholder="Enter speaker's full name">
+                  </div>
 
-                <div class="mb-2">
-                  <label class="form-label">Title / Designation</label>
-                  <input name="title" class="form-control" value="<?= e($edit['title']) ?>">
-                </div>
+                  <div class="mb-3">
+                    <label class="form-label fw-semibold">
+                      <i class="bi bi-briefcase me-1 text-secondary"></i>Title / Designation
+                    </label>
+                    <input name="title" class="form-control" value="<?= e($edit['title']) ?>" placeholder="Job title or designation">
+                  </div>
 
-                <div class="mb-2">
-                  <label class="form-label">Program Type</label>
-                  <select name="program_type" class="form-select" required>
-                    <option value="main" <?= ($edit['program_type'] ?? 'main')==='main'?'selected':'' ?>>Main Program</option>
-                    <option value="sub" <?= ($edit['program_type'] ?? 'main')==='sub'?'selected':'' ?>>Sub Program</option>
-                  </select>
-                </div>
+                  <div class="mb-3">
+                    <label class="form-label fw-semibold">
+                      <i class="bi bi-diagram-3 me-1 text-info"></i>Program Type
+                    </label>
+                    <select name="program_type" class="form-select" required>
+                      <option value="main" <?= ($edit['program_type'] ?? 'main')==='main'?'selected':'' ?>>🏢 Main Program</option>
+                      <option value="sub" <?= ($edit['program_type'] ?? 'main')==='sub'?'selected':'' ?>>🏗️ Sub Program</option>
+                    </select>
+                  </div>
 
-                <div class="mb-2" id="techDeptWrapperEdit">
-                  <label class="form-label">Technical Department (Sub Program)</label>
-                  <select name="technical_department_id" class="form-select" id="technical_department_id_edit">
-                    <option value="">-- select department --</option>
-                    <?php foreach ($technical_departments as $td): ?>
-                      <option value="<?= (int)$td['id'] ?>" <?= (isset($edit['technical_department_id']) && (int)$edit['technical_department_id']===$td['id'])?'selected':'' ?>><?= e($td['name']) ?></option>
-                    <?php endforeach; ?>
-                  </select>
-                  <small class="text-muted">Required if Program Type is Sub.</small>
-                </div>
+                  <div class="mb-3" id="techDeptWrapperEdit">
+                    <label class="form-label fw-semibold">
+                      <i class="bi bi-building me-1 text-warning"></i>Technical Department
+                    </label>
+                    <select name="technical_department_id" class="form-select" id="technical_department_id_edit">
+                      <option value="">Select department</option>
+                      <?php foreach ($technical_departments as $td): ?>
+                        <option value="<?= (int)$td['id'] ?>" <?= (isset($edit['technical_department_id']) && (int)$edit['technical_department_id']===$td['id'])?'selected':'' ?>>
+                          <?= e($td['name']) ?>
+                        </option>
+                      <?php endforeach; ?>
+                    </select>
+                    <small class="form-text text-muted mt-1">
+                      <i class="bi bi-info-circle me-1"></i>Required for Sub Program speakers
+                    </small>
+                  </div>
 
-                <div class="mb-2">
-                  <label class="form-label">Day</label>
-                  <select id="daySelectEdit" class="form-select mb-2">
-                    <option value="">-- select day --</option>
-                    <?php foreach ($days as $d): ?>
-                      <option value="<?= (int)$d['id'] ?>" <?= '' ?>><?= e($d['label']) ?></option>
-                    <?php endforeach; ?>
-                  </select>
-                  <label class="form-label">Function Room</label>
-                  <select name="room_id" id="roomSelectEdit" class="form-select" required>
-                    <option value="">-- select room --</option>
-                    <?php foreach ($rooms as $rm): ?>
-                      <option value="<?= (int)$rm['id'] ?>" <?= $edit['room_id'] == $rm['id'] ? 'selected' : '' ?>><?= e($rm['name']) ?> <?= $rm['day_number'] ? ' (Day '.$rm['day_number'].')' : '' ?></option>
-                    <?php endforeach; ?>
-                  </select>
-                  <small id="noRoomsEdit" class="text-danger d-none">No rooms found for selected day.</small>
-                </div>
+                  <div class="mb-3">
+                    <label class="form-label fw-semibold">
+                      <i class="bi bi-calendar-day me-1 text-success"></i>Day Filter
+                    </label>
+                    <select id="daySelectEdit" class="form-select">
+                      <option value="">All days</option>
+                      <?php foreach ($days as $d): ?>
+                        <option value="<?= (int)$d['id'] ?>"><?= e($d['label']) ?></option>
+                      <?php endforeach; ?>
+                    </select>
+                  </div>
+                  
+                  <div class="mb-3">
+                    <label class="form-label fw-semibold">
+                      <i class="bi bi-door-open me-1 text-primary"></i>Function Room
+                    </label>
+                    <select name="room_id" id="roomSelectEdit" class="form-select" required>
+                      <option value="">Select room</option>
+                      <?php foreach ($rooms as $rm): ?>
+                        <option value="<?= (int)$rm['id'] ?>" <?= $edit['room_id'] == $rm['id'] ? 'selected' : '' ?>>
+                          <?= e($rm['name']) ?> <?= $rm['day_number'] ? ' (Day '.$rm['day_number'].')' : '' ?>
+                        </option>
+                      <?php endforeach; ?>
+                    </select>
+                    <small id="noRoomsEdit" class="text-danger d-none">No rooms found for selected day.</small>
+                  </div>
 
-                <div class="mb-2">
-                  <label class="form-label">Start Time</label>
-                  <input name="start_time" type="time" class="form-control" value="<?= e($edit['start_time']) ?>">
-                </div>
-                <div class="mb-2"> <!-- NEW -->
-                  <label class="form-label">End Time</label>
-                  <input name="end_time" type="time" class="form-control" value="<?= e($edit['end_time'] ?? '') ?>">
-                </div>
+                  <div class="row mb-3">
+                    <div class="col-md-6">
+                      <label class="form-label fw-semibold">
+                        <i class="bi bi-clock me-1 text-success"></i>Start Time
+                      </label>
+                      <input name="start_time" type="time" class="form-control" value="<?= e($edit['start_time']) ?>">
+                    </div>
+                    <div class="col-md-6">
+                      <label class="form-label fw-semibold">
+                        <i class="bi bi-clock-history me-1 text-warning"></i>End Time
+                      </label>
+                      <input name="end_time" type="time" class="form-control" value="<?= e($edit['end_time'] ?? '') ?>">
+                    </div>
+                  </div>
 
-                <div class="mb-2">
-                  <label class="form-label">Photo (upload to replace)</label>
-                  <?php if (!empty($edit['photo_url'])): ?>
-                    <div class="mb-2"><img src="<?= e(asset_url($edit['photo_url'])) ?>" class="speaker-photo" alt=""></div>
-                  <?php endif; ?>
-                  <input name="photo_file" type="file" accept="image/*" class="form-control">
-                  <input type="hidden" name="photo_url" value="<?= e($edit['photo_url']) ?>">
-                </div>
+                  <div class="mb-3">
+                    <label class="form-label fw-semibold">
+                      <i class="bi bi-camera me-1 text-info"></i>Photo
+                    </label>
+                    <?php if (!empty($edit['photo_url'])): ?>
+                      <div class="mb-2 d-flex align-items-center">
+                        <img src="<?= e(asset_url($edit['photo_url'])) ?>" class="speaker-photo me-2" alt="">
+                        <small class="text-success"><i class="bi bi-check-circle me-1"></i>Current photo</small>
+                      </div>
+                    <?php endif; ?>
+                    <input name="photo_file" type="file" accept="image/*" class="form-control">
+                    <input type="hidden" name="photo_url" value="<?= e($edit['photo_url']) ?>">
+                    <small class="form-text text-muted mt-1">Upload to replace current photo (JPG, PNG, GIF - max 8MB)</small>
+                  </div>
 
-                <div class="mb-2">
-                  <label class="form-label">Presentation (optional, upload to replace)</label>
-                  <?php if (!empty($edit['presentation_url'])): ?>
-                    <div class="mb-2"><a href="<?= e(asset_url($edit['presentation_url'])) ?>" target="_blank" class="btn btn-sm btn-outline-primary">View Current</a></div>
-                  <?php endif; ?>
-                  <input name="presentation_file" type="file" accept=".ppt,.pptx,.pdf" class="form-control">
-                  <input type="hidden" name="presentation_url" value="<?= e($edit['presentation_url']) ?>">
-                </div>
+                  <div class="mb-3">
+                    <label class="form-label fw-semibold">
+                      <i class="bi bi-file-earmark-slides me-1 text-primary"></i>Presentation
+                    </label>
+                    <?php if (!empty($edit['presentation_url'])): ?>
+                      <div class="mb-2">
+                        <a href="<?= e(asset_url($edit['presentation_url'])) ?>" target="_blank" class="btn btn-sm btn-outline-primary">
+                          <i class="bi bi-eye me-1"></i>View Current
+                        </a>
+                      </div>
+                    <?php endif; ?>
+                    <input name="presentation_file" type="file" accept=".ppt,.pptx,.pdf" class="form-control">
+                    <input type="hidden" name="presentation_url" value="<?= e($edit['presentation_url']) ?>">
+                    <small class="form-text text-muted mt-1">Upload to replace (PPT, PPTX, PDF - max 20MB)</small>
+                  </div>
 
-                <div class="mb-2">
-                  <label class="form-label">Short Bio</label>
-                  <textarea name="bio" class="form-control" rows="4"><?= e($edit['bio'] ?? '') ?></textarea>
-                </div>
+                  <div class="mb-4">
+                    <label class="form-label fw-semibold">
+                      <i class="bi bi-card-text me-1 text-secondary"></i>Short Bio
+                    </label>
+                    <textarea name="bio" class="form-control" rows="4" placeholder="Brief biography or description"><?= e($edit['bio'] ?? '') ?></textarea>
+                  </div>
 
-                <div class="d-grid">
-                  <button class="btn btn-primary">Update Speaker</button>
-                  <a href="admin_speaker_manage.php" class="btn btn-link mt-2">Cancel</a>
-                </div>
+                  <div class="d-grid gap-2">
+                    <button type="submit" class="btn btn-gradient-primary btn-lg">
+                      <i class="bi bi-check-lg me-2"></i>Update Speaker
+                    </button>
+                    <a href="admin_speaker_manage.php" class="btn btn-outline-secondary">
+                      <i class="bi bi-arrow-left me-2"></i>Cancel Edit
+                    </a>
+                  </div>
               </form>
 
-            <?php else: ?>
-              <h6 class="card-title">Add Speaker</h6>
-              <form method="post" enctype="multipart/form-data" novalidate>
-                <input type="hidden" name="csrf_token" value="<?= e($_SESSION['csrf_token']) ?>">
-                <input type="hidden" name="action" value="add">
+                <?php else: ?>
+                  <form method="post" enctype="multipart/form-data" novalidate>
+                    <input type="hidden" name="csrf_token" value="<?= e($_SESSION['csrf_token']) ?>">
+                    <input type="hidden" name="action" value="add">
 
-                <div class="mb-2">
-                  <label class="form-label">Name</label>
-                  <input name="name" class="form-control" required value="">
-                </div>
+                    <div class="mb-3">
+                      <label class="form-label fw-semibold">
+                        <i class="bi bi-person me-1 text-primary"></i>Speaker Name
+                      </label>
+                      <input name="name" class="form-control" required value="" placeholder="Enter speaker's full name">
+                    </div>
 
-                <div class="mb-2">
-                  <label class="form-label">Title / Designation</label>
-                  <input name="title" class="form-control" value="">
-                </div>
+                    <div class="mb-3">
+                      <label class="form-label fw-semibold">
+                        <i class="bi bi-briefcase me-1 text-secondary"></i>Title / Designation
+                      </label>
+                      <input name="title" class="form-control" value="" placeholder="Job title or designation">
+                    </div>
 
-                <div class="mb-2">
-                  <label class="form-label">Program Type</label>
-                  <select name="program_type" class="form-select" required>
-                    <option value="main" selected>Main Program</option>
-                    <option value="sub">Sub Program</option>
-                  </select>
-                </div>
+                    <div class="mb-3">
+                      <label class="form-label fw-semibold">
+                        <i class="bi bi-diagram-3 me-1 text-info"></i>Program Type
+                      </label>
+                      <select name="program_type" class="form-select" required>
+                        <option value="main" selected>🏢 Main Program</option>
+                        <option value="sub">🏗️ Sub Program</option>
+                      </select>
+                    </div>
 
-                <div class="mb-2" id="techDeptWrapperAdd">
-                  <label class="form-label">Technical Department <span class="text-muted" style="font-weight:normal;">(required for Sub)</span></label>
-                  <select name="technical_department_id" class="form-select" id="technical_department_id_add">
-                    <option value="">-- select department --</option>
-                    <?php foreach ($technical_departments as $td): ?>
-                      <option value="<?= (int)$td['id'] ?>"><?= e($td['name']) ?></option>
-                    <?php endforeach; ?>
-                  </select>
-                  <small class="text-muted" id="techDeptHintAdd">Select a Program Type above.</small>
-                </div>
+                    <div class="mb-3" id="techDeptWrapperAdd">
+                      <label class="form-label fw-semibold">
+                        <i class="bi bi-building me-1 text-warning"></i>Technical Department
+                      </label>
+                      <select name="technical_department_id" class="form-select" id="technical_department_id_add">
+                        <option value="">Select department</option>
+                        <?php foreach ($technical_departments as $td): ?>
+                          <option value="<?= (int)$td['id'] ?>"><?= e($td['name']) ?></option>
+                        <?php endforeach; ?>
+                      </select>
+                      <small class="form-text text-muted mt-1" id="techDeptHintAdd">
+                        <i class="bi bi-info-circle me-1"></i>Required for Sub Program speakers
+                      </small>
+                    </div>
 
-                <div class="mb-2">
-                  <label class="form-label">Day</label>
-                  <select id="daySelect" class="form-select mb-2">
-                    <option value="">-- select day --</option>
-                    <?php foreach ($days as $d): ?>
-                      <option value="<?= (int)$d['id'] ?>"><?= e($d['label']) ?></option>
-                    <?php endforeach; ?>
-                  </select>
+                    <div class="mb-3">
+                      <label class="form-label fw-semibold">
+                        <i class="bi bi-calendar-day me-1 text-success"></i>Day Filter
+                      </label>
+                      <select id="daySelect" class="form-select">
+                        <option value="">All days</option>
+                        <?php foreach ($days as $d): ?>
+                          <option value="<?= (int)$d['id'] ?>"><?= e($d['label']) ?></option>
+                        <?php endforeach; ?>
+                      </select>
+                    </div>
 
-                  <label class="form-label">Function Room</label>
-                  <select name="room_id" id="roomSelect" class="form-select" required>
-                    <option value="">-- select room --</option>
-                    <?php foreach ($rooms as $rm): ?>
-                      <option value="<?= (int)$rm['id'] ?>"><?= e($rm['name']) ?> <?= $rm['day_number'] ? ' (Day '.$rm['day_number'].')' : '' ?></option>
-                    <?php endforeach; ?>
-                  </select>
-                  <small id="noRoomsAdd" class="text-danger d-none">No rooms found for selected day.</small>
-                </div>
+                    <div class="mb-3">
+                      <label class="form-label fw-semibold">
+                        <i class="bi bi-door-open me-1 text-primary"></i>Function Room
+                      </label>
+                      <select name="room_id" id="roomSelect" class="form-select" required>
+                        <option value="">Select room</option>
+                        <?php foreach ($rooms as $rm): ?>
+                          <option value="<?= (int)$rm['id'] ?>"><?= e($rm['name']) ?> <?= $rm['day_number'] ? ' (Day '.$rm['day_number'].')' : '' ?></option>
+                        <?php endforeach; ?>
+                      </select>
+                      <small id="noRoomsAdd" class="text-danger d-none">No rooms found for selected day.</small>
+                    </div>
 
-                <div class="mb-2">
-                  <label class="form-label">Start Time</label>
-                  <input name="start_time" type="time" class="form-control" value="">
-                </div>
-                <div class="mb-2"> <!-- NEW -->
-                  <label class="form-label">End Time</label>
-                  <input name="end_time" type="time" class="form-control" value="">
-                </div>
+                    <div class="row mb-3">
+                      <div class="col-md-6">
+                        <label class="form-label fw-semibold">
+                          <i class="bi bi-clock me-1 text-success"></i>Start Time
+                        </label>
+                        <input name="start_time" type="time" class="form-control" value="">
+                      </div>
+                      <div class="col-md-6">
+                        <label class="form-label fw-semibold">
+                          <i class="bi bi-clock-history me-1 text-warning"></i>End Time
+                        </label>
+                        <input name="end_time" type="time" class="form-control" value="">
+                      </div>
+                    </div>
 
-                <div class="mb-2">
-                  <label class="form-label">Photo (optional)</label>
-                  <input name="photo_file" type="file" accept="image/*" class="form-control">
-                </div>
+                    <div class="mb-3">
+                      <label class="form-label fw-semibold">
+                        <i class="bi bi-camera me-1 text-info"></i>Photo
+                      </label>
+                      <input name="photo_file" type="file" accept="image/*" class="form-control">
+                      <small class="form-text text-muted mt-1">Optional (JPG, PNG, GIF - max 8MB)</small>
+                    </div>
 
-                <div class="mb-2">
-                  <label class="form-label">Presentation (optional)</label>
-                  <input name="presentation_file" type="file" accept=".ppt,.pptx,.pdf" class="form-control">
-                </div>
+                    <div class="mb-3">
+                      <label class="form-label fw-semibold">
+                        <i class="bi bi-file-earmark-slides me-1 text-primary"></i>Presentation
+                      </label>
+                      <input name="presentation_file" type="file" accept=".ppt,.pptx,.pdf" class="form-control">
+                      <small class="form-text text-muted mt-1">Optional (PPT, PPTX, PDF - max 20MB)</small>
+                    </div>
 
-                <div class="mb-2">
-                  <label class="form-label">Short Bio</label>
-                  <textarea name="bio" class="form-control" rows="4"></textarea>
-                </div>
+                    <div class="mb-4">
+                      <label class="form-label fw-semibold">
+                        <i class="bi bi-card-text me-1 text-secondary"></i>Short Bio
+                      </label>
+                      <textarea name="bio" class="form-control" rows="4" placeholder="Brief biography or description"></textarea>
+                    </div>
 
-                <div class="d-grid">
-                  <button class="btn btn-success">Add Speaker</button>
-                </div>
-              </form>
-            <?php endif; ?>
-          </div>
-        </div>
+                    <div class="d-grid">
+                      <button type="submit" class="btn btn-gradient-success btn-lg">
+                        <i class="bi bi-plus-lg me-2"></i>Add Speaker
+                      </button>
+                    </div>
+                  </form>
+                <?php endif; ?>
+            </div>
 
-        <div class="card">
-          <div class="card-body small-muted">
-            Use the Day selector to help pick the function room. Rooms list contains day info but you can filter with the Day selector.
+            <!-- Help Card -->
+            <div class="card mt-3">
+              <div class="card-body text-center">
+                <i class="bi bi-lightbulb text-warning fs-3 mb-2"></i>
+                <h6 class="fw-semibold mb-2">Quick Tips</h6>
+                <ul class="list-unstyled text-muted small">
+                  <li class="mb-1"><i class="bi bi-check2 text-success me-2"></i>Use Day filter to find relevant rooms</li>
+                  <li class="mb-1"><i class="bi bi-check2 text-success me-2"></i>Photos and presentations enhance speaker profiles</li>
+                  <li class="mb-1"><i class="bi bi-check2 text-success me-2"></i>Technical departments are required for Sub Program</li>
+                </ul>
+                <hr class="my-2">
+                <a href="admin_quiz_manage.php" class="btn btn-sm btn-gradient-primary">
+                  <i class="bi bi-ui-checks-grid me-1"></i>Manage Quizzes
+                </a>
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -746,5 +1111,7 @@ document.addEventListener('DOMContentLoaded', () => {
   initToggle(editForm, techDeptWrapperEdit);
 });
 </script>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
 </body>
 </html>

@@ -155,11 +155,18 @@ function handle_signature_upload_indexed(string $field, $key){
 $errors = []; $success = '';
 $id = isset($_GET['id']) ? (int)$_GET['id'] : 0;
 
+// Load departments (for creation scope dropdown). Safe even if table doesn't exist.
+$departments = [];
+$deptRes = @$db->query("SELECT id,name FROM technical_departments WHERE is_active=1 ORDER BY name ASC");
+if ($deptRes) { while($r=$deptRes->fetch_assoc()) $departments[]=$r; $deptRes->close(); }
+
 // Step 1: Create template (bg + placeholders; upload signatures here)
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'create_template') {
     if (!hash_equals($_SESSION['csrf_token'], (string)($_POST['csrf_token'] ?? ''))) { $errors[] = 'Invalid CSRF token.'; }
     else {
-        $type = substr(trim((string)($_POST['type'] ?? 'attendance')), 0, 50);
+  $type = substr(trim((string)($_POST['type'] ?? 'attendance')), 0, 50);
+  $scope_binding = substr(trim((string)($_POST['scope_binding'] ?? '')),0,40);
+  $scope_identifier = substr(trim((string)($_POST['scope_identifier'] ?? '')),0,80);
         $cert_number_format = trim((string)($_POST['cert_number_format'] ?? 'NC-{YYYY}-{SEQ4}'));
         $cert_awardee_name  = trim((string)($_POST['awardee_placeholder'] ?? '{USER_NAME}'));
         $seminar_title      = trim((string)($_POST['seminar_placeholder'] ?? '{SEMINAR_TITLE}'));
@@ -174,25 +181,31 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'creat
             $user_id = null;
             $speaker_id = null;
 
-            $sql = "INSERT INTO certificates
-                (user_id, type, speaker_id, file_path, issued_at, created_at,
-                 bg_url, cert_awardee_name, seminar_title, cert_number_format,
-                 pos_signatory_name_x, pos_signatory_name_y,
-                 pos_cert_awardee_name_x, pos_cert_awardee_name_y,
-                 pos_cert_number_x, pos_cert_number_y,
-                 pos_seminar_title_x, pos_seminar_title_y,
-                 show_awardee, show_seminar, show_number)
-                VALUES (?, ?, ?, '', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP,
-                        ?, ?, ?, ?,
-                        0,0, 0,0, 0,0, 0,0,
-                        1,1,1)";
+      // Ensure new columns exist (light migration)
+      $colCheck = $db->query("SHOW COLUMNS FROM certificates LIKE 'scope_binding'"); if($colCheck && $colCheck->num_rows===0){ @$db->query("ALTER TABLE certificates ADD COLUMN scope_binding VARCHAR(40) NULL"); } if($colCheck) $colCheck->close();
+      $colCheck2 = $db->query("SHOW COLUMNS FROM certificates LIKE 'scope_identifier'"); if($colCheck2 && $colCheck2->num_rows===0){ @$db->query("ALTER TABLE certificates ADD COLUMN scope_identifier VARCHAR(80) NULL"); } if($colCheck2) $colCheck2->close();
+
+      $sql = "INSERT INTO certificates
+        (user_id, type, speaker_id, file_path, issued_at, created_at,
+         bg_url, cert_awardee_name, seminar_title, cert_number_format,
+         pos_signatory_name_x, pos_signatory_name_y,
+         pos_cert_awardee_name_x, pos_cert_awardee_name_y,
+         pos_cert_number_x, pos_cert_number_y,
+         pos_seminar_title_x, pos_seminar_title_y,
+         show_awardee, show_seminar, show_number,
+         scope_binding, scope_identifier)
+        VALUES (?, ?, ?, '', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP,
+            ?, ?, ?, ?,
+            0,0, 0,0, 0,0, 0,0,
+            1,1,1, ?, ?)";
             $st = $db->prepare($sql);
             if ($st) {
-                $st->bind_param(
-                    'isissss',
-                    $user_id, $type, $speaker_id,
-                    $bg, $cert_awardee_name, $seminar_title, $cert_number_format
-                );
+        $st->bind_param(
+          'isissssss',
+          $user_id, $type, $speaker_id,
+          $bg, $cert_awardee_name, $seminar_title, $cert_number_format,
+          $scope_binding, $scope_identifier
+        );
                 if ($st->execute()) {
                     $newId = $st->insert_id;
                     $st->close();
@@ -228,8 +241,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'save_
     if (!hash_equals($_SESSION['csrf_token'], (string)($_POST['csrf_token'] ?? ''))) { $errors[] = 'Invalid CSRF token.'; }
     else {
         $cert_number_format = trim((string)($_POST['cert_number_format'] ?? ''));
-        $cert_awardee_name  = trim((string)($_POST['awardee_placeholder'] ?? ''));
-        $seminar_title      = trim((string)($_POST['seminar_placeholder'] ?? ''));
+  $cert_awardee_name  = trim((string)($_POST['awardee_placeholder'] ?? ''));
+  $seminar_title      = trim((string)($_POST['seminar_placeholder'] ?? ''));
+  $scope_binding = substr(trim((string)($_POST['scope_binding'] ?? '')),0,40);
+  $scope_identifier = substr(trim((string)($_POST['scope_identifier'] ?? '')),0,80);
 
         $pos_cert_awardee_name_x= (float)($_POST['pos_cert_awardee_name_x'] ?? 0);
         $pos_cert_awardee_name_y= (float)($_POST['pos_cert_awardee_name_y'] ?? 0);
@@ -291,12 +306,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'save_
         show_awardee = ?, show_seminar = ?, show_number = ?,
         font_awardee_family = ?, font_awardee_size_px = ?, font_awardee_color = ?,
         font_seminar_family = ?, font_seminar_size_px = ?, font_seminar_color = ?,
-        font_number_family = ?, font_number_size_px = ?, font_number_color = ?
+        font_number_family = ?, font_number_size_px = ?, font_number_color = ?,
+        scope_binding = ?, scope_identifier = ?
         WHERE id = ?";
             $st = $db->prepare($sql);
             if ($st) {
         $st->bind_param(
-          'ssssddddddiiisssisssisi',
+          'ssssddddddiiisssisssisssi',
           $bg_url, $cert_awardee_name, $seminar_title, $cert_number_format,
           $pos_cert_awardee_name_x, $pos_cert_awardee_name_y,
           $pos_cert_number_x, $pos_cert_number_y,
@@ -305,6 +321,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'save_
           $font_awardee_family, $font_awardee_size_px, $font_awardee_color,
           $font_seminar_family, $font_seminar_size_px, $font_seminar_color,
           $font_number_family, $font_number_size_px, $font_number_color,
+          $scope_binding, $scope_identifier,
           $id
         );
                 if ($st->execute()) {
@@ -366,7 +383,8 @@ if ($id > 0) {
         show_awardee, show_seminar, show_number
   ,font_awardee_family,font_awardee_size_px,font_awardee_color,
   font_seminar_family,font_seminar_size_px,font_seminar_color,
-  font_number_family,font_number_size_px,font_number_color
+  font_number_family,font_number_size_px,font_number_color,
+  scope_binding, scope_identifier
   FROM certificates WHERE id = ? LIMIT 1");
     if ($st) { $st->bind_param('i', $id); $st->execute(); $res = $st->get_result(); $row = $res->fetch_assoc(); $st->close(); }
 
@@ -1125,8 +1143,42 @@ body {
                 <label class="form-label">
                   <i class="bi bi-tag me-2"></i>Template Type
                 </label>
-                <input type="text" class="form-control-modern" name="type" value="attendance" placeholder="e.g. attendance, participation" required>
-                <div class="help-text">Enter a descriptive name for this certificate type</div>
+                <select class="form-control-modern" name="type" required>
+                  <option value="attendance">Attendance (Generic)</option>
+                  <option value="appearance">Appearance</option>
+                  <option value="cpd">CPD</option>
+                  <option value="main_program_overall">Main Program Overall (Completion)</option>
+                  <option value="main_program_attendance">Main Program Attendance</option>
+                  <option value="sub_program_attendance">Sub Program Attendance</option>
+                </select>
+                <div class="help-text">Choose a predefined type. Use main_program_attendance for overall main attendance; sub_program_attendance for department tracks.</div>
+              </div>
+            </div>
+
+            <div class="col-lg-4">
+              <div class="form-group">
+                <label class="form-label"><i class="bi bi-diagram-3 me-2"></i>Scope Binding (Optional)</label>
+                <select class="form-control-modern" name="scope_binding">
+                  <option value="">-- None / Global --</option>
+                  <option value="main_program">Main Program</option>
+                  <option value="sub_program">Sub Program (Department)</option>
+                </select>
+                <div class="help-text">Attach this template to a program scope if needed for automatic filtering.</div>
+              </div>
+            </div>
+
+            <div class="col-lg-4" id="scopeIdentifierColumn" style="display:none;">
+              <div class="form-group">
+                <label class="form-label"><i class="bi bi-hash me-2"></i>Department (Scope Identifier)</label>
+                <select class="form-control-modern" name="scope_identifier" id="scope_identifier_select">
+                  <option value="">-- All Departments --</option>
+                  <?php if(empty($departments)): ?>
+                    <option value="" disabled>(No departments found – create some first)</option>
+                  <?php else: foreach($departments as $d): ?>
+                    <option value="<?= (int)$d['id'] ?>"><?= e($d['name']) ?></option>
+                  <?php endforeach; endif; ?>
+                </select>
+                <div class="help-text">Shown only for Sub Program binding. Select a department to restrict the template or leave as All.</div>
               </div>
             </div>
             
@@ -1166,7 +1218,7 @@ body {
                   <i class="bi bi-hash me-2"></i>Certificate Number Format
                 </label>
                 <input type="text" class="form-control-modern" name="cert_number_format" value="NC-{YYYY}-{SEQ4}">
-                <div class="help-text">Available tokens: {YYYY}, {MM}, {DD}, {SEQ4}, {USER_ID}</div>
+                <div class="help-text">Available tokens: {YYYY}, {MM}, {DD}, {SEQ4}, {USER_ID}. For overall main program templates you can also embed {SPEAKER_TITLES} inside Awardee/Seminar text.</div>
               </div>
             </div>
 
@@ -1219,6 +1271,26 @@ body {
           </div>
         </form>
       </div>
+      <script>
+      (function(){
+        const scopeBindingSel = document.querySelector('select[name="scope_binding"]');
+        const scopeCol = document.getElementById('scopeIdentifierColumn');
+        function updateScopeVisibility(){
+          if(!scopeBindingSel || !scopeCol) return;
+            if(scopeBindingSel.value === 'sub_program'){
+              scopeCol.style.display='';
+            } else {
+              scopeCol.style.display='none';
+              const sel = document.getElementById('scope_identifier_select');
+              if(sel) sel.value='';
+            }
+        }
+        if(scopeBindingSel){
+          scopeBindingSel.addEventListener('change', updateScopeVisibility);
+          updateScopeVisibility();
+        }
+      })();
+      </script>
     <?php else: ?>
       <form method="post" enctype="multipart/form-data" id="editorForm" novalidate autocomplete="off">
         <input type="hidden" name="csrf_token" value="<?= e($_SESSION['csrf_token']) ?>">
@@ -1301,6 +1373,35 @@ body {
             <div class="sidebar-card">
               <div class="sidebar-header">
                 <h3 class="sidebar-title">
+                  <i class="bi bi-diagram-3"></i>Scope
+                </h3>
+              </div>
+              <div class="sidebar-body">
+                <div class="form-group">
+                  <label class="form-label">Scope Binding</label>
+                  <select class="form-control-modern" name="scope_binding" id="edit_scope_binding">
+                    <option value="" <?= empty($row['scope_binding'])?'selected':''; ?>>-- None / Global --</option>
+                    <option value="main_program" <?= (isset($row['scope_binding']) && $row['scope_binding']==='main_program')?'selected':''; ?>>Main Program</option>
+                    <option value="sub_program" <?= (isset($row['scope_binding']) && $row['scope_binding']==='sub_program')?'selected':''; ?>>Sub Program (Department)</option>
+                  </select>
+                  <div class="help-text">Choose how this template is restricted.</div>
+                </div>
+                <div class="form-group" id="edit_scope_identifier_group" style="display:none;">
+                  <label class="form-label">Department</label>
+                  <select class="form-control-modern" name="scope_identifier" id="edit_scope_identifier">
+                    <option value="">-- All Departments --</option>
+                    <?php foreach($departments as $d): $did=(int)$d['id']; $sel = (isset($row['scope_identifier']) && (string)$row['scope_identifier']===(string)$did)?'selected':''; ?>
+                      <option value="<?= $did ?>" <?= $sel ?>><?= e($d['name']) ?></option>
+                    <?php endforeach; ?>
+                  </select>
+                  <div class="help-text">Visible only when binding is Sub Program.</div>
+                </div>
+              </div>
+            </div>
+
+            <div class="sidebar-card">
+              <div class="sidebar-header">
+                <h3 class="sidebar-title">
                   <i class="bi bi-type"></i>Text Elements
                 </h3>
               </div>
@@ -1343,11 +1444,13 @@ body {
                   <div class="form-group">
                     <label class="form-label">Awardee Name Placeholder</label>
                     <input type="text" class="form-control-modern" name="awardee_placeholder" id="inp-awardee" value="<?= e($row['cert_awardee_name'] ?: '{USER_NAME}') ?>">
+                    <div class="help-text">Tokens: {USER_NAME}, {CERT_NUMBER}, {SPEAKER_TITLES} (overall main program only)</div>
                   </div>
                   
                   <div class="form-group">
                     <label class="form-label">Seminar Title Placeholder</label>
                     <input type="text" class="form-control-modern" name="seminar_placeholder" id="inp-seminar" value="<?= e($row['seminar_title'] ?: '{SEMINAR_TITLE}') ?>">
+                    <div class="help-text">Tokens: {SEMINAR_TITLE}, {TOTAL_SESSIONS}, {TOTAL_SPEAKERS}, {CERT_NUMBER}, {SPEAKER_TITLES}</div>
                   </div>
                   
                   <div class="form-group">
@@ -1538,6 +1641,21 @@ body {
   }
 
   if (!id) return;
+
+  // Scope binding toggle in edit mode
+  var editScopeBinding = document.getElementById('edit_scope_binding');
+  var editScopeIdentifierGroup = document.getElementById('edit_scope_identifier_group');
+  function updateEditScope(){
+    if(!editScopeBinding || !editScopeIdentifierGroup) return;
+    if(editScopeBinding.value==='sub_program'){
+      editScopeIdentifierGroup.style.display='';
+    } else {
+      editScopeIdentifierGroup.style.display='none';
+      var sel = document.getElementById('edit_scope_identifier');
+      if(sel) sel.value='';
+    }
+  }
+  if(editScopeBinding){ editScopeBinding.addEventListener('change', updateEditScope); updateEditScope(); }
 
   var bg = document.getElementById('bgImage');
   var phAwardee = document.getElementById('ph-awardee');

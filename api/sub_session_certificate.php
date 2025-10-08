@@ -66,9 +66,8 @@ if (strcasecmp((string)$sp['program_type'],'sub') !== 0) { http_response_code(40
 
 // Check evaluation completion
 $evaluated = false;
-if ($st = $db->prepare('SELECT 1 FROM speaker_evaluations WHERE speaker_id=? AND user_id=? LIMIT 1')) {
-    $st->bind_param('ii',$speaker_id,$user_id); $st->execute(); $st->bind_result($d); if ($st->fetch()) $evaluated=true; $st->close();
-}
+if ($st = $db->prepare('SELECT 1 FROM speaker_evaluations WHERE speaker_id=? AND user_id=? LIMIT 1')) { $st->bind_param('ii',$speaker_id,$user_id); $st->execute(); $st->bind_result($d); if ($st->fetch()) $evaluated=true; $st->close(); }
+if (!$evaluated && $st = $db->prepare('SELECT 1 FROM speaker_eval_responses WHERE speaker_id=? AND user_id=? LIMIT 1')) { $st->bind_param('ii',$speaker_id,$user_id); $st->execute(); $st->bind_result($d); if ($st->fetch()) $evaluated=true; $st->close(); }
 if (!$evaluated) { http_response_code(403); echo json_encode(['ok'=>false,'error'=>'Evaluation incomplete']); exit; }
 
 // Existing certificate?

@@ -26,6 +26,14 @@ $speakersCount = dash_count($db,"SELECT COUNT(*) FROM speakers");
 $quizzesCount=0; if($q=$db->query("SELECT COUNT(*) FROM quizzes")){ $quizzesCount=(int)$q->fetch_row()[0]; }
 $quizRespCount=0; if($q2=$db->query("SELECT COUNT(*) FROM quiz_responses")){ $quizRespCount=(int)$q2->fetch_row()[0]; }
 $evalCount=0; if($qe=$db->query("SELECT COUNT(*) FROM speaker_evaluations")){ $evalCount=(int)$qe->fetch_row()[0]; }
+$dynEvalResponses=0; $dynActiveSetQuestions=0; $dynActiveSetId=0; $dynActiveSetName='';
+if (table_exists($db,'speaker_eval_question_sets') && table_exists($db,'speaker_eval_questions')) {
+    if($r=$db->query("SELECT id,set_name FROM speaker_eval_question_sets WHERE is_active=1 LIMIT 1")) { if($row=$r->fetch_assoc()){ $dynActiveSetId=(int)$row['id']; $dynActiveSetName=$row['set_name']; } }
+    if($dynActiveSetId>0) {
+        if($r2=$db->query("SELECT COUNT(*) FROM speaker_eval_questions WHERE question_set_id=".$dynActiveSetId." AND is_active=1")) { $dynActiveSetQuestions=(int)$r2->fetch_row()[0]; }
+    }
+}
+if (table_exists($db,'speaker_eval_responses')) { if($r3=$db->query("SELECT COUNT(*) FROM speaker_eval_responses")) { $dynEvalResponses=(int)$r3->fetch_row()[0]; } }
 $speakersNoQuiz=0; if($qr=$db->query("SELECT COUNT(*) FROM speakers s LEFT JOIN quizzes q ON q.speaker_id=s.id WHERE q.id IS NULL")){ $speakersNoQuiz=(int)$qr->fetch_row()[0]; }
 $quizCoverage = ($speakersCount>0)? round((($speakersCount-$speakersNoQuiz)/$speakersCount)*100):0;
 
@@ -71,17 +79,22 @@ $missingQuizCertCount=count($speakersMissingQuizCert);
         <style>
         /* CSS Custom Properties (Variables) */
         :root {
-            --primary: #3b82f6;
-            --primary-dark: #2563eb;
-            --primary-light: rgba(59, 130, 246, 0.1);
+            --primary: #667eea;
+            --primary-dark: #5a6fd8;
+            --primary-light: rgba(102, 126, 234, 0.1);
+            --primary-gradient: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             --success: #10b981;
             --success-light: rgba(16, 185, 129, 0.1);
+            --success-gradient: linear-gradient(135deg, #10b981 0%, #059669 100%);
             --warning: #f59e0b;
             --warning-light: rgba(245, 158, 11, 0.1);
+            --warning-gradient: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
             --danger: #ef4444;
             --danger-light: rgba(239, 68, 68, 0.1);
+            --danger-gradient: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
             --info: #06b6d4;
             --info-light: rgba(6, 182, 212, 0.1);
+            --info-gradient: linear-gradient(135deg, #06b6d4 0%, #0891b2 100%);
             
             --bg-primary: #ffffff;
             --bg-secondary: #f8fafc;
@@ -105,7 +118,7 @@ $missingQuizCertCount=count($speakersMissingQuizCert);
         }
 
         body {
-            background: var(--bg-secondary);
+            background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
             font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
             color: var(--text-primary);
             min-height: 100vh;
@@ -158,12 +171,26 @@ $missingQuizCertCount=count($speakersMissingQuizCert);
 
         /* Welcome Card */
         .welcome-section {
-            background: linear-gradient(135deg, var(--primary), var(--primary-dark));
+            background: var(--primary-gradient);
             border-radius: var(--radius-lg);
             padding: 20px;
             margin: 16px;
             color: white;
             box-shadow: var(--shadow-md);
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .welcome-section::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            right: 0;
+            width: 80px;
+            height: 80px;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 50%;
+            transform: translate(25px, -25px);
         }
 
         .welcome-section .text-white-50 {
@@ -193,7 +220,10 @@ $missingQuizCertCount=count($speakersMissingQuizCert);
         .stat-number {
             font-size: 2.25rem;
             font-weight: 700;
-            color: var(--primary);
+            background: var(--primary-gradient);
+            background-clip: text;
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
             line-height: 1;
             margin-bottom: 4px;
         }
@@ -205,16 +235,34 @@ $missingQuizCertCount=count($speakersMissingQuizCert);
 
         /* Modern Progress Bars */
         .progress {
-            height: 6px;
-            border-radius: 3px;
+            height: 8px;
+            border-radius: 4px;
             background: var(--bg-tertiary);
             overflow: hidden;
+            box-shadow: inset 0 1px 2px rgba(0,0,0,0.1);
         }
 
         .progress-bar {
-            background: linear-gradient(90deg, var(--success), var(--info));
-            border-radius: 3px;
-            transition: width 0.6s ease;
+            background: var(--success-gradient);
+            border-radius: 4px;
+            transition: width 0.8s ease;
+            position: relative;
+        }
+        
+        .progress-bar::after {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.2) 50%, transparent 100%);
+            animation: shimmer 2s infinite;
+        }
+        
+        @keyframes shimmer {
+            0% { transform: translateX(-100%); }
+            100% { transform: translateX(100%); }
         }
 
         /* Enhanced Badges */
@@ -302,7 +350,7 @@ $missingQuizCertCount=count($speakersMissingQuizCert);
             padding: 20px;
         }
 
-        /* Buttons */
+        /* Enhanced Buttons */
         .btn {
             border-radius: var(--radius-md);
             font-weight: 500;
@@ -310,22 +358,25 @@ $missingQuizCertCount=count($speakersMissingQuizCert);
             padding: 8px 16px;
             transition: all var(--transition-fast);
             border: 1px solid transparent;
+            position: relative;
+            overflow: hidden;
         }
 
         .btn:hover {
             transform: translateY(-1px);
+            box-shadow: var(--shadow-md);
         }
 
         .btn-primary {
-            background: var(--primary);
-            border-color: var(--primary);
+            background: var(--primary-gradient);
+            border: none;
             color: white;
         }
 
         .btn-primary:hover {
-            background: var(--primary-dark);
-            border-color: var(--primary-dark);
+            background: var(--primary-gradient);
             color: white;
+            transform: translateY(-2px);
         }
 
         .btn-outline-primary {
@@ -335,8 +386,20 @@ $missingQuizCertCount=count($speakersMissingQuizCert);
         }
 
         .btn-outline-primary:hover {
-            background: var(--primary);
-            border-color: var(--primary);
+            background: var(--primary-gradient);
+            border: none;
+            color: white;
+        }
+        
+        .btn-outline-success:hover {
+            background: var(--success-gradient);
+            border: none;
+            color: white;
+        }
+        
+        .btn-outline-info:hover {
+            background: var(--info-gradient);
+            border: none;
             color: white;
         }
 
@@ -436,6 +499,58 @@ $missingQuizCertCount=count($speakersMissingQuizCert);
             from { transform: translateY(20px); opacity: 0; }
             to { transform: translateY(0); opacity: 1; }
         }
+        
+        /* Section Headers */
+        .section-header {
+            margin-top: 2rem;
+            margin-bottom: 1.5rem;
+        }
+        
+        .section-icon {
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            background: rgba(102, 126, 234, 0.1);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        
+        /* Enhanced stat cards with gradients */
+        .stat-card .card-body {
+            background: linear-gradient(135deg, rgba(255,255,255,0.9) 0%, rgba(248,250,252,0.9) 100%);
+            backdrop-filter: blur(10px);
+            border-radius: var(--radius-lg);
+        }
+        
+        /* Enhanced sidebar navigation */
+        .sidebar .nav-link .badge {
+            font-size: 10px;
+            padding: 3px 6px;
+            border-radius: 10px;
+        }
+        
+        /* Enhanced progress coverage styling */
+        .progress {
+            position: relative;
+        }
+        
+        .progress::after {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: linear-gradient(90deg, rgba(255,255,255,0) 0%, rgba(255,255,255,0.3) 50%, rgba(255,255,255,0) 100%);
+            border-radius: 4px;
+            animation: progressShine 3s ease-in-out infinite;
+        }
+        
+        @keyframes progressShine {
+            0%, 100% { opacity: 0; transform: translateX(-100%); }
+            50% { opacity: 1; transform: translateX(100%); }
+        }
     </style>
 </head>
 <body>
@@ -534,6 +649,14 @@ $missingQuizCertCount=count($speakersMissingQuizCert);
                                     </a>
                                 </li>
                                 <li class="nav-item">
+                                    <a class="nav-link py-2" href="admin_speaker_eval_questions.php">
+                                        <i class="bi bi-sliders"></i> Eval Question Sets
+                                        <?php if($dynActiveSetQuestions>0): ?>
+                                          <span class="badge bg-success text-white ms-1"><?= (int)$dynActiveSetQuestions ?></span>
+                                        <?php endif; ?>
+                                    </a>
+                                </li>
+                                <li class="nav-item">
                                     <a class="nav-link py-2" href="admin_eval_natcon.php">
                                         <i class="bi bi-list-check"></i> NatCon Evaluation
                                         <span class="badge bg-primary text-white ms-1">Q<?= (int)$natconQuestionCount ?></span>
@@ -590,7 +713,15 @@ $missingQuizCertCount=count($speakersMissingQuizCert);
             </div>
 
                     <!-- SECTION: Structure & Attendance -->
-                    <h4 class="mt-2 mb-3 text-secondary fw-bold small text-uppercase">Structure & Attendance</h4>
+                    <div class="section-header d-flex align-items-center mb-3">
+                        <div class="section-icon me-3">
+                            <i class="bi bi-building text-primary fs-4"></i>
+                        </div>
+                        <h4 class="mb-0 text-secondary fw-bold small text-uppercase">Structure & Attendance</h4>
+                        <div class="flex-grow-1 ms-3">
+                            <hr class="my-0 opacity-25">
+                        </div>
+                    </div>
                     <div class="row g-4 mb-4 slide-up">
                         <div class="col-md-4 col-lg-3">
                             <div class="stat-card h-100">
@@ -653,10 +784,13 @@ $missingQuizCertCount=count($speakersMissingQuizCert);
                                         </div>
                                         <div class="col-12">
                                             <div class="small text-secondary mt-1">Speaker eval records: <strong><?= (int)$evalCount ?></strong></div>
-                                            <div class="small text-secondary">Use reports for detailed analytics & exports.</div>
+                                            <div class="small text-secondary">Dynamic set <?= $dynActiveSetId? '#'.$dynActiveSetId.' ('.htmlspecialchars($dynActiveSetName,ENT_QUOTES|ENT_SUBSTITUTE,'UTF-8').')':'' ?> questions: <strong><?= (int)$dynActiveSetQuestions ?></strong></div>
+                                            <div class="small text-secondary">Dynamic responses: <strong><?= (int)$dynEvalResponses ?></strong></div>
+                                            <div class="small text-secondary">Use reports & set manager for deeper analytics.</div>
                                             <div class="mt-2 d-flex gap-1">
                                                 <a href="admin_eval_natcon.php" class="btn btn-sm btn-outline-primary flex-fill">Manage</a>
                                                 <a href="admin_eval_natcon_reports.php" class="btn btn-sm btn-primary flex-fill">Reports</a>
+                                                <a href="admin_speaker_eval_questions.php" class="btn btn-sm btn-outline-success flex-fill">Sets</a>
                                             </div>
                                         </div>
                                     </div>
@@ -666,7 +800,15 @@ $missingQuizCertCount=count($speakersMissingQuizCert);
                     </div>
 
                     <!-- SECTION: Speakers & Quizzes -->
-                    <h4 class="mt-2 mb-3 text-secondary fw-bold small text-uppercase">Speakers & Quizzes</h4>
+                    <div class="section-header d-flex align-items-center mb-3">
+                        <div class="section-icon me-3">
+                            <i class="bi bi-people-fill text-info fs-4"></i>
+                        </div>
+                        <h4 class="mb-0 text-secondary fw-bold small text-uppercase">Speakers & Quizzes</h4>
+                        <div class="flex-grow-1 ms-3">
+                            <hr class="my-0 opacity-25">
+                        </div>
+                    </div>
                     <div class="row g-4 mb-4 slide-up">
                         <div class="col-sm-6 col-lg-3">
                             <div class="stat-card h-100">
@@ -749,7 +891,15 @@ $missingQuizCertCount=count($speakersMissingQuizCert);
                     </div>
 
                     <!-- SECTION: Certificates & Gaps -->
-                    <h4 class="mt-5 mb-3 text-secondary fw-bold small text-uppercase">Certificates & Gaps</h4>
+                    <div class="section-header d-flex align-items-center mb-3 mt-5">
+                        <div class="section-icon me-3">
+                            <i class="bi bi-award-fill text-warning fs-4"></i>
+                        </div>
+                        <h4 class="mb-0 text-secondary fw-bold small text-uppercase">Certificates & Gaps</h4>
+                        <div class="flex-grow-1 ms-3">
+                            <hr class="my-0 opacity-25">
+                        </div>
+                    </div>
 
                         <!-- Speakers Missing Quiz & Dept Certificate Template (moved into Certificates & Gaps section) -->
                         <div class="row g-4 mt-1 mb-5">
@@ -802,21 +952,66 @@ $missingQuizCertCount=count($speakersMissingQuizCert);
                         </div>
 
                         <!-- SECTION: Administration -->
-                        <h4 class="mt-2 mb-3 text-secondary fw-bold small text-uppercase">Administration</h4>
+                        <div class="section-header d-flex align-items-center mb-3">
+                            <div class="section-icon me-3">
+                                <i class="bi bi-gear-fill text-success fs-4"></i>
+                            </div>
+                            <h4 class="mb-0 text-secondary fw-bold small text-uppercase">Administration</h4>
+                            <div class="flex-grow-1 ms-3">
+                                <hr class="my-0 opacity-25">
+                            </div>
+                        </div>
                         <div class="row g-4 mb-5">
                             <div class="col-lg-6 col-xl-4">
                                 <div class="enhanced-card slide-up h-100">
                                     <div class="card-header py-2"><h6 class="mb-0 d-flex align-items-center"><i class="bi bi-lightning-fill text-warning me-2"></i>Quick Actions</h6></div>
                                     <div class="card-body">
-                                        <div class="d-grid gap-2 mb-3">
-                                            <a href="admin_speaker_manage.php" class="btn btn-outline-primary btn-sm"><i class="bi bi-person-video3 me-2"></i> Speakers</a>
-                                            <a href="admin_technical_departments.php" class="btn btn-outline-secondary btn-sm"><i class="bi bi-diagram-3 me-2"></i> Departments</a>
-                                            <a href="admin_quiz_manage.php" class="btn btn-primary btn-sm"><i class="bi bi-ui-checks-grid me-2"></i> Quizzes</a>
-                                            <a href="admin_manage_function_rooms.php" class="btn btn-outline-secondary btn-sm"><i class="bi bi-door-open me-2"></i> Rooms</a>
-                                            <a href="admin_certificate_settings.php" class="btn btn-outline-success btn-sm"><i class="bi bi-award me-2"></i> Certificates</a>
-                                            <a href="admin_department_certificate_templates.php" class="btn btn-outline-success btn-sm"><i class="bi bi-award-fill me-2"></i> Dept Certificates</a>
-                                            <a href="admin_eval_natcon.php" class="btn btn-outline-info btn-sm"><i class="bi bi-list-check me-2"></i> NatCon Eval</a>
-                                            <a href="admin_eval_natcon_reports.php" class="btn btn-outline-dark btn-sm"><i class="bi bi-graph-up me-2"></i> Reports</a>
+                                        <div class="row g-2 mb-3">
+                                            <div class="col-6">
+                                                <a href="admin_speaker_manage.php" class="btn btn-outline-primary btn-sm w-100 d-flex align-items-center justify-content-center">
+                                                    <i class="bi bi-person-video3 me-1"></i> Speakers
+                                                </a>
+                                            </div>
+                                            <div class="col-6">
+                                                <a href="admin_quiz_manage.php" class="btn btn-primary btn-sm w-100 d-flex align-items-center justify-content-center">
+                                                    <i class="bi bi-ui-checks-grid me-1"></i> Quizzes
+                                                </a>
+                                            </div>
+                                            <div class="col-6">
+                                                <a href="admin_technical_departments.php" class="btn btn-outline-secondary btn-sm w-100 d-flex align-items-center justify-content-center">
+                                                    <i class="bi bi-diagram-3 me-1"></i> Departments
+                                                </a>
+                                            </div>
+                                            <div class="col-6">
+                                                <a href="admin_manage_function_rooms.php" class="btn btn-outline-secondary btn-sm w-100 d-flex align-items-center justify-content-center">
+                                                    <i class="bi bi-door-open me-1"></i> Rooms
+                                                </a>
+                                            </div>
+                                            <div class="col-6">
+                                                <a href="admin_certificate_settings.php" class="btn btn-outline-success btn-sm w-100 d-flex align-items-center justify-content-center">
+                                                    <i class="bi bi-award me-1"></i> Certificates
+                                                </a>
+                                            </div>
+                                            <div class="col-6">
+                                                <a href="admin_department_certificate_templates.php" class="btn btn-outline-success btn-sm w-100 d-flex align-items-center justify-content-center">
+                                                    <i class="bi bi-award-fill me-1"></i> Dept Certs
+                                                </a>
+                                            </div>
+                                            <div class="col-6">
+                                                <a href="admin_eval_natcon.php" class="btn btn-outline-info btn-sm w-100 d-flex align-items-center justify-content-center">
+                                                    <i class="bi bi-list-check me-1"></i> NatCon Eval
+                                                </a>
+                                            </div>
+                                            <div class="col-6">
+                                                <a href="admin_eval_natcon_reports.php" class="btn btn-outline-dark btn-sm w-100 d-flex align-items-center justify-content-center">
+                                                    <i class="bi bi-graph-up me-1"></i> Reports
+                                                </a>
+                                            </div>
+                                            <div class="col-6">
+                                                <a href="admin_speaker_eval_questions.php" class="btn btn-outline-success btn-sm w-100 d-flex align-items-center justify-content-center">
+                                                    <i class="bi bi-sliders me-1"></i> Eval Sets
+                                                </a>
+                                            </div>
                                         </div>
                                         <div class="p-2 bg-primary bg-opacity-10 rounded-3 small">
                                             <div class="d-flex align-items-start">
