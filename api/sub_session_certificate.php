@@ -17,6 +17,17 @@ else { http_response_code(500); echo json_encode(['ok'=>false,'error'=>'DB unava
 $user_id = isset($_SESSION['user_id']) ? (int)$_SESSION['user_id'] : 0;
 if ($user_id <= 0) { http_response_code(401); echo json_encode(['ok'=>false,'error'=>'Login required']); exit; }
 
+// Helper: fetch admin setting with safe fallbacks
+function get_setting(mysqli $db, string $key, $default = '') {
+    // Guard for missing table
+    $chk = $db->query("SHOW TABLES LIKE 'admin_settings'");
+    if (!$chk) return $default; $has = $chk->num_rows>0; $chk->close(); if(!$has) return $default;
+    if ($st = $db->prepare("SELECT setting_value FROM admin_settings WHERE setting_key=? LIMIT 1")) {
+        $st->bind_param('s',$key); $st->execute(); $st->bind_result($val); if ($st->fetch()) { $st->close(); return $val; } $st->close();
+    }
+    return $default;
+}
+
 // Auto-migrate table if missing
 @$db->query("CREATE TABLE IF NOT EXISTS sub_session_certificates (
   id INT AUTO_INCREMENT PRIMARY KEY,
@@ -64,11 +75,51 @@ $sp = fetch_speaker($db,$speaker_id);
 if (!$sp) { http_response_code(404); echo json_encode(['ok'=>false,'error'=>'Speaker not found']); exit; }
 if (strcasecmp((string)$sp['program_type'],'sub') !== 0) { http_response_code(400); echo json_encode(['ok'=>false,'error'=>'Not a sub program speaker']); exit; }
 
-// Check evaluation completion
-$evaluated = false;
-if ($st = $db->prepare('SELECT 1 FROM speaker_evaluations WHERE speaker_id=? AND user_id=? LIMIT 1')) { $st->bind_param('ii',$speaker_id,$user_id); $st->execute(); $st->bind_result($d); if ($st->fetch()) $evaluated=true; $st->close(); }
-if (!$evaluated && $st = $db->prepare('SELECT 1 FROM speaker_eval_responses WHERE speaker_id=? AND user_id=? LIMIT 1')) { $st->bind_param('ii',$speaker_id,$user_id); $st->execute(); $st->bind_result($d); if ($st->fetch()) $evaluated=true; $st->close(); }
+// Load admin settings (Sub Program specific with sensible fallbacks)
+$subRequireEval = (get_setting($db,'sub_cert_require_eval', get_setting($db,'cert_require_eval','0')) === '1');
+$subRequireQuiz = (get_setting($db,'sub_cert_require_quiz', get_setting($db,'cert_require_quiz','1')) === '1');
+$subMinScore    = (int)(get_setting($db,'sub_cert_min_score', get_setting($db,'cert_min_score','0')) ?: 0);
+$certEnabled    = get_setting($db,'cert_generation_enabled','0');
+$autoEnableDate = trim((string)get_setting($db,'cert_auto_enable_date',''));
+
+// Global enable/scheduled activation gate for generation
+$nowTs = time(); $canByDate = true;
+if ($autoEnableDate !== '') { $ts = strtotime($autoEnableDate); if ($ts !== false) { $canByDate = ($nowTs >= $ts); } }
+$canGenerate = ($certEnabled === '1') || $canByDate;
+if (!$canGenerate) {
+    http_response_code(403);
+    echo json_encode(['ok'=>false,'error'=>'Certificate generation is disabled or not yet open','available_after'=>$autoEnableDate ?: null]);
+    exit;
+}
+
+// Check evaluation completion (only if required)
+$evaluated = true;
+if ($subRequireEval) {
+    $evaluated = false;
+    if ($st = $db->prepare('SELECT 1 FROM speaker_evaluations WHERE speaker_id=? AND user_id=? LIMIT 1')) { $st->bind_param('ii',$speaker_id,$user_id); $st->execute(); $st->bind_result($d); if ($st->fetch()) $evaluated=true; $st->close(); }
+    if (!$evaluated && $st = $db->prepare('SELECT 1 FROM speaker_eval_responses WHERE speaker_id=? AND user_id=? LIMIT 1')) { $st->bind_param('ii',$speaker_id,$user_id); $st->execute(); $st->bind_result($d); if ($st->fetch()) $evaluated=true; $st->close(); }
+}
 if (!$evaluated) { http_response_code(403); echo json_encode(['ok'=>false,'error'=>'Evaluation incomplete']); exit; }
+
+// Check quiz requirement (only if required and quiz exists for this speaker)
+if ($subRequireQuiz) {
+    $hasQuiz=false; $quizId=0;
+    if ($q=$db->prepare('SELECT id FROM quizzes WHERE speaker_id=? LIMIT 1')) { $q->bind_param('i',$speaker_id); $q->execute(); $q->bind_result($quizId); if($q->fetch()) $hasQuiz=true; $q->close(); }
+    if(!$hasQuiz){ if($qq=$db->prepare('SELECT 1 FROM quiz_questions WHERE speaker_id=? LIMIT 1')){ $qq->bind_param('i',$speaker_id); $qq->execute(); $qq->bind_result($d); if($qq->fetch()) $hasQuiz=true; $qq->close(); } }
+    if ($hasQuiz) {
+        $userHasResponse=false; $userScore=null;
+        if($quizId>0){ if($qr=$db->prepare('SELECT score FROM quiz_responses WHERE quiz_id=? AND user_id=? LIMIT 1')){ $qr->bind_param('ii',$quizId,$user_id); $qr->execute(); $qr->bind_result($sc); if($qr->fetch()){ $userHasResponse=true; $userScore=(int)$sc; } $qr->close(); }}
+        if(!$userHasResponse){ if($qr2=$db->prepare('SELECT score FROM quiz_responses WHERE speaker_id=? AND user_id=? LIMIT 1')){ $qr2->bind_param('ii',$speaker_id,$user_id); $qr2->execute(); $qr2->bind_result($sc); if($qr2->fetch()){ $userHasResponse=true; $userScore=(int)$sc; } $qr2->close(); }}
+        if(!$userHasResponse){ http_response_code(403); echo json_encode(['ok'=>false,'error'=>'Quiz not completed','required_percent'=>$subMinScore]); exit; }
+        // Determine total gradable questions
+        $totalGradable=0; $ansJson=null; $qJson=null;
+        if($quizId>0){ if($qq2=$db->prepare('SELECT answers,questions FROM quizzes WHERE id=? LIMIT 1')){ $qq2->bind_param('i',$quizId); $qq2->execute(); $qq2->bind_result($ansJson,$qJson); if($qq2->fetch()){} $qq2->close(); } }
+        if($ansJson){ $arr=json_decode((string)$ansJson,true); if(is_array($arr)) $totalGradable=count($arr); }
+        if($totalGradable<=0 && $qJson){ $arr=json_decode((string)$qJson,true); if(is_array($arr)) $totalGradable=count($arr); }
+        if($totalGradable>0){ $pct = ($userScore*100.0)/$totalGradable; $passed = ((int)round($pct) >= (int)$subMinScore); } else { $passed=false; }
+        if(!$passed){ http_response_code(403); echo json_encode(['ok'=>false,'error'=>'Quiz score below required threshold','required_percent'=>$subMinScore]); exit; }
+    }
+}
 
 // Existing certificate?
 if ($st = $db->prepare('SELECT file_path FROM sub_session_certificates WHERE user_id=? AND speaker_id=? LIMIT 1')) {

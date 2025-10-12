@@ -90,13 +90,22 @@ $normalizedAnswers = [];
 $MAX_TEXT_LEN = 4000;
 
 for ($i = 0; $i < count($correct); $i++) {
-  $corr = $correct[$i]; // int for MCQ, null for paragraph
+  $corr = $correct[$i]; // array of ints for MCQ, null for paragraph
   $user = $answersArr[$i];
 
-  if (is_int($corr)) {
-    $userIdx = is_numeric($user) ? (int)$user : -1;
-    if ($userIdx === $corr) $score++;
-    $normalizedAnswers[] = $userIdx;
+  if (is_array($corr)) {
+    // Multiple-correct: treat correct if user's set equals the correct set
+    $corrSet = array_values(array_unique(array_map('intval', $corr)));
+    sort($corrSet);
+    $userSet = [];
+    if (is_array($user)) {
+      $userSet = array_values(array_unique(array_map('intval', $user)));
+    } elseif (is_numeric($user)) {
+      $userSet = [(int)$user];
+    }
+    sort($userSet);
+    if ($userSet === $corrSet) $score++;
+    $normalizedAnswers[] = $userSet;
   } else {
     // Paragraph: trim and cap length
     $txt = is_string($user) ? $user : (is_null($user) ? '' : strval($user));

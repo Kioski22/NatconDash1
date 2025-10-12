@@ -14,7 +14,7 @@ if ($st = $db->prepare('SELECT id,label,day_date,is_enabled FROM function_room_d
 if (!$day) { http_response_code(404); echo json_encode(['error'=>'Day not found']); exit; }
 
 $speakers = [];
-$sql = "SELECT s.id,s.name,s.title,s.start_time,s.end_time,s.photo_url,fr.name AS room_name,fr.id AS room_id
+$sql = "SELECT s.id,s.name,s.title,s.topic,s.start_time,s.end_time,s.photo_url,fr.name AS room_name,fr.id AS room_id
   FROM speakers s
   LEFT JOIN function_rooms fr ON fr.id = s.room_id
   WHERE fr.day_id = ? AND s.program_type='sub'

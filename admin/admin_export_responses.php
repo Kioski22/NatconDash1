@@ -39,15 +39,28 @@ if (!$speaker) { http_response_code(404); echo 'Speaker not found'; exit; }
 $speakerTitleName = trim(($speaker['title'] ? $speaker['title'].' ' : '').$speaker['name']);
 
 // Fetch quiz (single) for speaker
-$quiz = null; $quizQuestions = []; $quizOptions = []; // arrays parallel
-if ($st = $db->prepare('SELECT id,questions,options FROM quizzes WHERE speaker_id=? LIMIT 1')) {
+$quiz = null; $quizQuestions = []; $quizOptions = []; $quizAnswers = []; // arrays parallel
+if ($st = $db->prepare('SELECT id,questions,options,answers FROM quizzes WHERE speaker_id=? LIMIT 1')) {
   $st->bind_param('i', $speaker_id); $st->execute(); $st->bind_result($quiz_id,$qjson,$ojson);
+  // For backward-compat with older mysqli bind_result count, attempt rebind if 4 columns
+  $meta = $st->result_metadata();
+  $colCount = $meta ? $meta->field_count : 0; if ($meta) $meta->free();
+  if ($colCount === 4) { $st->bind_result($quiz_id,$qjson,$ojson,$ajson); }
   if ($st->fetch()) {
     $quiz = ['id'=>$quiz_id];
     $quizQuestions = json_decode((string)$qjson,true) ?: [];
     $quizOptions   = json_decode((string)$ojson,true) ?: [];
+    if (isset($ajson)) { $quizAnswers = json_decode((string)$ajson,true) ?: []; }
   }
   $st->close();
+}
+
+// Determine passing score threshold (percent) from admin settings if available
+$passingPercent = 0; // default 0% threshold if not configured
+if (function_exists('table_exists') ? table_exists($db,'admin_settings') : true) {
+  if ($st = $db->prepare("SELECT setting_value FROM admin_settings WHERE setting_key='cert_min_score' LIMIT 1")) {
+    $st->execute(); $st->bind_result($val); if ($st->fetch()) { $passingPercent = (int)$val; } $st->close();
+  }
 }
 
 // Active evaluation questions (dynamic system) – fallback to empty if tables absent
@@ -77,7 +90,7 @@ else {
 }
 
 // Build CSV header
-$csvHeader = ['Timestamp','Score','TAKE THE QUIZ AND EVALUATION','Full Name'];
+$csvHeader = ['Timestamp','Score','Pass or Fail','TAKE THE QUIZ AND EVALUATION','Full Name'];
 // Quiz question headers
 foreach ($quizQuestions as $idx=>$qt) {
   $h = 'Question '.($idx+1).'. '.preg_replace('/\s+/',' ',trim((string)$qt));
@@ -197,6 +210,13 @@ foreach ($userRows as $uid => $data) {
   // Build row
   $timestamp = $data['quiz_timestamp'] ?: ($data['eval_timestamp'] ?: '');
   $score = $data['score'];
+  // Compute pass/fail based on configured passing percentage and quiz total
+  $passFail = '';
+  $totalQuestions = count($quizAnswers) > 0 ? count($quizAnswers) : (count($quizQuestions) > 0 ? count($quizQuestions) : 0);
+  if ($score !== '' && $score !== null && $totalQuestions > 0) {
+    $pct = ($score / $totalQuestions) * 100;
+    $passFail = ((int)round($pct) >= (int)$passingPercent) ? 'PASS' : 'FAIL';
+  }
   $userName = $data['user_name'];
   // Quiz answers mapped to text
   $quizAnswerTexts = [];
@@ -216,7 +236,7 @@ foreach ($userRows as $uid => $data) {
     $evalVals[] = $data['eval_answers'][$q['id']] ?? '';
   }
   $comment = $data['comment'];
-  $row = array_merge([$timestamp,$score,$speakerTitleName,$userName], $quizAnswerTexts, $evalVals, [$comment]);
+  $row = array_merge([$timestamp,$score,$passFail,$speakerTitleName,$userName], $quizAnswerTexts, $evalVals, [$comment]);
   fputcsv($out,$row);
 }
 

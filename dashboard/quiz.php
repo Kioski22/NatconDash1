@@ -29,10 +29,11 @@ if ($speaker_id <= 0) { http_response_code(400); echo "Invalid speaker."; exit; 
 // fetch speaker details
 $speakerName = 'Speaker';
 $speakerTitle = '';
-if ($st = $db->prepare("SELECT name, title FROM speakers WHERE id = ? LIMIT 1")) {
-  $st->bind_param('i', $speaker_id);
+$speakerTopic = '';
+if ($st = $db->prepare("SELECT name, title, topic FROM speakers WHERE id = ? LIMIT 1")) {
+  $st->bind_param('i', $speakerId);
   $st->execute();
-  $st->bind_result($speakerName, $speakerTitle);
+  $st->bind_result($speakerName, $speakerTitle, $speakerTopic);
   $st->fetch();
   $st->close();
 }
@@ -509,7 +510,7 @@ if ($st = $db->prepare("SELECT name, title FROM speakers WHERE id = ? LIMIT 1"))
       <div class="d-flex justify-content-between align-items-center mb-3">
         <div class="flex-grow-1">
           <h1 class="quiz-title">Interactive Quiz</h1>
-          <p class="quiz-subtitle"><?= e($speakerName) ?><?= $speakerTitle ? ' — ' . e($speakerTitle) : '' ?></p>
+          <p class="quiz-subtitle"><?= e($speakerName) ?><?= ($speakerTopic ? ' — ' . e($speakerTopic) : ($speakerTitle ? ' — ' . e($speakerTitle) : '')) ?></p>
         </div>
         <a class="back-button" href="speaker_form.php?id=<?= (int)$speaker_id ?>">
           <i class="bi bi-arrow-left"></i>

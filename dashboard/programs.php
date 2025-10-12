@@ -337,16 +337,24 @@ if ($_SERVER['REQUEST_METHOD']==='POST' && isset($_POST['attendance_submit'])) {
           fetch('../api/main_program_completion.php',{credentials:'same-origin'}),
           fetch('../api/main_program_attendance_certificate.php?progress=1',{credentials:'same-origin'})
         ]);
-        const data = await rComp.json();
+  const data = await rComp.json();
         let attData = {};
         try { attData = await rAtt.json(); } catch(e){}
         if(!data || !data.ok) return;
         const wrap = document.getElementById('overallProgress');
         wrap.classList.remove('d-none');
-        const evalPct = data.eval_total>0 ? Math.round(data.eval_completed*100/data.eval_total) : 0;
-        document.getElementById('overallBar').style.width = evalPct + '%';
-        document.getElementById('overallEvalText').textContent = data.eval_completed + ' / ' + data.eval_total + ' evaluations';
-        document.getElementById('overallQuizText').textContent = 'Quizzes: ' + data.quiz_completed + ' / ' + data.quiz_required;
+        // Attendance-only progress: mark attendance for all required days
+        let req = 0, attended = 0;
+        if(attData && attData.ok){
+          const requiredDays = attData.required_days || [];
+          req = requiredDays.length;
+          const attendedDays = attData.attended || [];
+          attended = attendedDays.filter(dn => requiredDays.includes(dn)).length;
+        }
+        const pct = req>0 ? Math.round((attended*100)/req) : 0;
+        document.getElementById('overallBar').style.width = pct + '%';
+        document.getElementById('overallEvalText').textContent = 'Attendance: ' + attended + ' / ' + req + ' required days';
+        document.getElementById('overallQuizText').textContent = '';
         const btnGen = document.getElementById('btnGenerateOverall');
         const btnEmail = document.getElementById('btnEmailOverall');
         const btnAtt = document.getElementById('btnGenerateAttendance');

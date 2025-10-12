@@ -135,6 +135,12 @@ if ($action==='delete_question') {
   $db->query('UPDATE speaker_eval_questions SET is_active=0 WHERE id='.(int)$qid.' LIMIT 1');
   echo json_encode(['ok'=>true]); exit;
 }
+if ($action==='activate_question') {
+  $qid=(int)($payload['id']??0); if($qid<=0) jerr('id required');
+  // Reactivate: set is_active=1
+  $db->query('UPDATE speaker_eval_questions SET is_active=1 WHERE id='.(int)$qid.' LIMIT 1');
+  echo json_encode(['ok'=>true]); exit;
+}
 if ($action==='export_csv') {
   // speaker averages per question for a given set
   $setId=(int)($_GET['set_id']??0); if($setId<=0) jerr('set_id required');

@@ -50,6 +50,14 @@ $userName = $_SESSION['user_name'] ?? 'Account';
       -webkit-text-fill-color: transparent;
       background-clip: text;
     }
+    /* Responsive title sizing for mobile */
+    .navbar-brand .brand-title { white-space: normal; line-height: 1.1; }
+    @media (max-width: 576px) {
+      .navbar-brand .brand-title { font-size: 1rem !important; }
+    }
+    @media (max-width: 400px) {
+      .navbar-brand .brand-title { font-size: 0.9rem !important; }
+    }
     
     .btn-primary {
       background: linear-gradient(135deg, var(--primary-color), var(--primary-dark));
@@ -347,7 +355,7 @@ $userName = $_SESSION['user_name'] ?? 'Account';
         <a class="navbar-brand d-flex align-items-center" href="#">
           <img src="../image/natcon.jpg" alt="PSME Logo" class="me-3 rounded-circle" style="height:55px;">
           <div>
-            <span class="fs-5 fw-bold d-block">73rd PSME National Convention</span>
+            <span class="brand-title fs-5 fw-bold d-block">73rd PSME National Convention</span>
             
           </div>
         </a>

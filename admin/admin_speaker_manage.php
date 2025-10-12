@@ -144,7 +144,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     if ($action === 'add') {
             $name = trim($_POST['name'] ?? '');
-            $title = trim($_POST['title'] ?? '');
+            $title = trim($_POST['title'] ?? ''); // designation
+            $topic = trim($_POST['topic'] ?? ''); // session title/topic
             $room_id = isset($_POST['room_id']) && is_numeric($_POST['room_id']) ? (int)$_POST['room_id'] : 0;
             $start_time = trim($_POST['start_time'] ?? '') ?: null;
             $end_time = trim($_POST['end_time'] ?? '') ?: null;
@@ -187,9 +188,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       if ($technical_department_id <= 0) { $errors[] = 'Technical Department is required for Sub Program speaker.'; }
     }
     if (empty($errors)) {
-      $stmt = $db->prepare("INSERT INTO speakers (room_id, name, title, start_time, end_time, photo_url, presentation_url, bio, program_type, technical_department_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+      $stmt = $db->prepare("INSERT INTO speakers (room_id, name, title, topic, start_time, end_time, photo_url, presentation_url, bio, program_type, technical_department_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
       if ($stmt) {
-        $stmt->bind_param('issssssssi', $room_id, $name, $title, $start_time, $end_time, $photo_url, $presentation_url, $bio, $program_type, $technical_department_id);
+        $stmt->bind_param('isssssssssi', $room_id, $name, $title, $topic, $start_time, $end_time, $photo_url, $presentation_url, $bio, $program_type, $technical_department_id);
         if ($stmt->execute()) {
           $success = 'Speaker added.';
         } else {
@@ -205,7 +206,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     } elseif ($action === 'update') {
             $id = isset($_POST['id']) ? (int)$_POST['id'] : 0;
             $name = trim($_POST['name'] ?? '');
-            $title = trim($_POST['title'] ?? '');
+            $title = trim($_POST['title'] ?? ''); // designation
+            $topic = trim($_POST['topic'] ?? ''); // session title/topic
             $room_id = isset($_POST['room_id']) && is_numeric($_POST['room_id']) ? (int)$_POST['room_id'] : 0;
             $start_time = trim($_POST['start_time'] ?? '') ?: null;
             $end_time = trim($_POST['end_time'] ?? '') ?: null;
@@ -249,9 +251,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       if ($technical_department_id <= 0) { $errors[] = 'Technical Department is required for Sub Program speaker.'; }
     }
     if (empty($errors)) {
-      $stmt = $db->prepare("UPDATE speakers SET room_id = ?, name = ?, title = ?, start_time = ?, end_time = ?, photo_url = ?, presentation_url = ?, bio = ?, program_type = ?, technical_department_id = ? WHERE id = ? LIMIT 1");
+      $stmt = $db->prepare("UPDATE speakers SET room_id = ?, name = ?, title = ?, topic = ?, start_time = ?, end_time = ?, photo_url = ?, presentation_url = ?, bio = ?, program_type = ?, technical_department_id = ? WHERE id = ? LIMIT 1");
       if ($stmt) {
-        $stmt->bind_param('isssssssssii', $room_id, $name, $title, $start_time, $end_time, $photo_url, $presentation_url, $bio, $program_type, $technical_department_id, $id);
+        // Types: i (room_id), s (name), s (title), s (topic), s (start_time), s (end_time), s (photo_url), s (presentation_url), s (bio), s (program_type), i (technical_department_id), i (id)
+        $stmt->bind_param('isssssssssii', $room_id, $name, $title, $topic, $start_time, $end_time, $photo_url, $presentation_url, $bio, $program_type, $technical_department_id, $id);
         if ($stmt->execute()) {
           $success = 'Speaker updated.';
         } else {
@@ -308,10 +311,17 @@ if ($r) {
     while ($row = $r->fetch_assoc()) $days[] = $row;
 }
 
+// Ensure function_rooms has program_type for filtering
+$colFR = $db->query("SHOW COLUMNS FROM function_rooms LIKE 'program_type'");
+if ($colFR && $colFR->num_rows === 0) {
+  @ $db->query("ALTER TABLE function_rooms ADD COLUMN program_type ENUM('main','sub') NOT NULL DEFAULT 'main'");
+}
+$colFR && $colFR->close();
+
 // fetch all rooms (we'll use JS to filter by day if needed)
 $rooms = [];
 $r2 = $db->query("
-  SELECT fr.id, fr.name,
+  SELECT fr.id, fr.name, fr.program_type,
          fd.id AS day_id, fd.label AS day_label, fd.day_date
   FROM function_rooms fr
   LEFT JOIN function_room_days fd ON fd.id = fr.day_id
@@ -350,12 +360,18 @@ if ($colRes2 && $colRes2->num_rows === 0) {
   @ $db->query("ALTER TABLE speakers ADD CONSTRAINT fk_speakers_techdept FOREIGN KEY (technical_department_id) REFERENCES technical_departments(id) ON DELETE SET NULL ON UPDATE CASCADE");
 }
 $colRes2 && $colRes2->close();
+// Ensure topic column exists for session title/topic
+$colRes3 = $db->query("SHOW COLUMNS FROM speakers LIKE 'topic'");
+if ($colRes3 && $colRes3->num_rows === 0) {
+  @ $db->query("ALTER TABLE speakers ADD COLUMN topic VARCHAR(255) NULL AFTER title");
+}
+$colRes3 && $colRes3->close();
 // Fetch technical departments
 $technical_departments = [];
 $tdRes = $db->query("SELECT id,name FROM technical_departments WHERE is_active=1 ORDER BY name ASC");
 if ($tdRes) { while($r=$tdRes->fetch_assoc()) $technical_departments[]=$r; }
 $sql = "
-  SELECT s.id, s.name, s.title, s.start_time, s.end_time, s.photo_url, s.presentation_url, s.room_id,
+  SELECT s.id, s.name, s.title, s.topic, s.start_time, s.end_time, s.photo_url, s.presentation_url, s.room_id,
        s.program_type,
        s.technical_department_id,
        td.name AS technical_department_name,
@@ -376,7 +392,7 @@ if ($res) {
 $edit = null;
 if (isset($_GET['edit']) && is_numeric($_GET['edit'])) {
     $eid = (int)$_GET['edit'];
-  $stmt = $db->prepare("SELECT id, name, title, start_time, end_time, photo_url, presentation_url, bio, room_id, program_type, technical_department_id FROM speakers WHERE id = ? LIMIT 1"); // CHANGED
+  $stmt = $db->prepare("SELECT id, name, title, topic, start_time, end_time, photo_url, presentation_url, bio, room_id, program_type, technical_department_id FROM speakers WHERE id = ? LIMIT 1"); // CHANGED
     if ($stmt) {
         $stmt->bind_param('i', $eid);
         $stmt->execute();
@@ -389,452 +405,736 @@ if (isset($_GET['edit']) && is_numeric($_GET['edit'])) {
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <title>Speakers — Manage | 73rd PSME National Convention</title>
+  <title>Speaker Management — 73rd PSME National Convention</title>
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
   <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css" rel="stylesheet">
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
   <style>
-    /* CSS Custom Properties */
     :root {
-      --primary-gradient: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-      --success-gradient: linear-gradient(135deg, #10b981 0%, #059669 100%);
-      --warning-gradient: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
-      --danger-gradient: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
-      --info-gradient: linear-gradient(135deg, #06b6d4 0%, #0891b2 100%);
-      --shadow-soft: 0 2px 15px rgba(0,0,0,0.08);
-      --shadow-hover: 0 8px 30px rgba(0,0,0,0.12);
-      --border-radius: 12px;
+      --primary: #2563eb;
+      --primary-dark: #1d4ed8;
+      --success: #10b981;
+      --warning: #f59e0b;
+      --danger: #ef4444;
+      --info: #06b6d4;
+      --light: #f8fafc;
+      --dark: #1e293b;
+      --card-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+      --border-radius: 16px;
+      --gradient-primary: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      --gradient-success: linear-gradient(135deg, #10b981 0%, #059669 100%);
+      --gradient-warning: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
+      --gradient-danger: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+      --gradient-info: linear-gradient(135deg, #06b6d4 0%, #0891b2 100%);
     }
+
+    * { font-family: 'Inter', system-ui, -apple-system, sans-serif; }
     
-    body {
-      font-family: 'Inter', system-ui, -apple-system, sans-serif;
-      background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+    body { 
+      background: var(--gradient-primary);
       min-height: 100vh;
+      padding: 2rem 0;
     }
-    
+
     .main-container {
-      background: rgba(255, 255, 255, 0.95);
-      backdrop-filter: blur(10px);
-      border-radius: var(--border-radius);
-      box-shadow: var(--shadow-soft);
-      margin-top: 2rem;
-      margin-bottom: 2rem;
+      max-width: 1600px;
+      margin: 0 auto;
+      padding: 0 1rem;
     }
-    
+
+    /* Enhanced Page Header */
     .page-header {
-      background: var(--primary-gradient);
-      color: white;
+      background: rgba(255, 255, 255, 0.95);
+      backdrop-filter: blur(20px);
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      border-radius: 20px;
       padding: 2rem;
-      border-radius: var(--border-radius) var(--border-radius) 0 0;
-      position: relative;
+      margin-bottom: 2rem;
+      box-shadow: var(--card-shadow);
+      text-align: center;
+    }
+
+    .page-title {
+      background: var(--gradient-primary);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+      font-weight: 700;
+      font-size: 2.5rem;
+      margin: 0;
+    }
+
+    .page-subtitle {
+      color: #64748b;
+      font-size: 1.1rem;
+      margin-top: 0.5rem;
+    }
+
+    /* Enhanced Cards */
+    .enhanced-card {
+      background: rgba(255, 255, 255, 0.95);
+      backdrop-filter: blur(20px);
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      border-radius: var(--border-radius);
+      box-shadow: var(--card-shadow);
+      transition: all 0.3s ease;
       overflow: hidden;
     }
-    
-    .page-header::before {
-      content: '';
-      position: absolute;
-      top: 0;
-      right: 0;
-      width: 100px;
-      height: 100px;
-      background: rgba(255, 255, 255, 0.1);
-      border-radius: 50%;
-      transform: translate(30px, -30px);
+
+    .enhanced-card:hover {
+      transform: translateY(-5px);
+      box-shadow: 0 20px 40px -10px rgba(0, 0, 0, 0.15);
     }
-    
-    .page-title {
-      margin: 0;
-      font-weight: 600;
-      font-size: 1.75rem;
+
+    .card-header-enhanced {
+      background: linear-gradient(135deg, rgba(37,99,235,0.1), rgba(6,182,212,0.1));
+      border-bottom: 2px solid rgba(37,99,235,0.1);
+      padding: 1.5rem 2rem;
     }
-    
-    .page-subtitle {
-      margin: 0.5rem 0 0;
-      opacity: 0.9;
-      font-weight: 300;
+
+    .card-body-enhanced {
+      padding: 2rem;
     }
-    
-    .card {
-      border: none;
-      border-radius: var(--border-radius);
-      box-shadow: var(--shadow-soft);
-      transition: all 0.3s ease;
-    }
-    
-    .card:hover {
-      box-shadow: var(--shadow-hover);
-      transform: translateY(-2px);
-    }
-    
-    .card-header {
-      background: rgba(248, 249, 250, 0.8);
-      border-bottom: 1px solid rgba(0, 0, 0, 0.05);
-      padding: 1.25rem;
-      border-radius: var(--border-radius) var(--border-radius) 0 0;
-    }
-    
-    .card-title {
-      font-weight: 600;
-      color: #2d3748;
-      margin-bottom: 0;
-      display: flex;
-      align-items: center;
-      gap: 0.5rem;
-    }
-    
+
+    /* Speaker Photo Enhancements */
     .speaker-photo {
-      width: 48px;
-      height: 48px;
-      border-radius: 8px;
+      width: 56px;
+      height: 56px;
+      border-radius: 12px;
       object-fit: cover;
-      box-shadow: 0 2px 8px rgba(0,0,0,0.1);
-      transition: all 0.2s ease;
+      box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+      transition: all 0.3s ease;
+      border: 2px solid rgba(255, 255, 255, 0.8);
     }
-    
+
     .speaker-photo:hover {
-      transform: scale(1.05);
-      box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+      transform: scale(1.1);
+      box-shadow: 0 8px 25px rgba(0,0,0,0.2);
+      border-color: var(--primary);
     }
-    
+
     .empty-photo {
-      width: 48px;
-      height: 48px;
-      border-radius: 8px;
+      width: 56px;
+      height: 56px;
+      border-radius: 12px;
       background: linear-gradient(135deg, #e2e8f0 0%, #cbd5e1 100%);
       display: flex;
       align-items: center;
       justify-content: center;
       color: #64748b;
+      border: 2px solid rgba(255, 255, 255, 0.8);
+      transition: all 0.3s ease;
     }
-    
-    .small-muted {
-      font-size: 0.85rem;
-      color: #6c757d;
+
+    .empty-photo:hover {
+      transform: scale(1.05);
+      border-color: var(--info);
     }
-    
-    .btn {
-      border-radius: 8px;
+
+    /* Form Enhancements */
+    .form-control, .form-select {
+      border-radius: 12px;
+      border: 2px solid rgba(0,0,0,0.1);
+      padding: 12px 16px;
       font-weight: 500;
-      transition: all 0.2s ease;
+      transition: all 0.3s ease;
+    }
+
+    .form-control:focus, .form-select:focus {
+      border-color: var(--primary);
+      box-shadow: 0 0 0 4px rgba(37,99,235,0.1);
+      transform: translateY(-1px);
+    }
+
+    .form-label {
+      font-weight: 600;
+      color: var(--dark);
+      margin-bottom: 0.75rem;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    /* Enhanced Buttons */
+    .btn {
+      border-radius: 12px;
+      font-weight: 600;
+      padding: 12px 20px;
+      transition: all 0.3s ease;
       border: none;
     }
-    
+
+    .btn:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 8px 20px rgba(0,0,0,0.15);
+    }
+
     .btn-gradient-primary {
-      background: var(--primary-gradient);
+      background: var(--gradient-primary);
       color: white;
     }
-    
-    .btn-gradient-primary:hover {
-      transform: translateY(-1px);
-      box-shadow: var(--shadow-soft);
-      color: white;
-    }
-    
+
     .btn-gradient-success {
-      background: var(--success-gradient);
+      background: var(--gradient-success);
       color: white;
     }
-    
-    .btn-gradient-success:hover {
-      transform: translateY(-1px);
-      box-shadow: var(--shadow-soft);
+
+    .btn-gradient-warning {
+      background: var(--gradient-warning);
       color: white;
     }
-    
+
     .btn-gradient-danger {
-      background: var(--danger-gradient);
+      background: var(--gradient-danger);
       color: white;
     }
-    
-    .btn-gradient-danger:hover {
-      transform: translateY(-1px);
-      box-shadow: var(--shadow-soft);
+
+    .btn-gradient-info {
+      background: var(--gradient-info);
       color: white;
     }
-    
-    .form-control:focus, .form-select:focus {
-      border-color: #667eea;
-      box-shadow: 0 0 0 0.2rem rgba(102, 126, 234, 0.15);
+
+    .btn-outline-primary {
+      border: 2px solid var(--primary);
+      color: var(--primary);
+      background: transparent;
     }
-    
-    .table-hover tbody tr:hover {
-      background-color: rgba(102, 126, 234, 0.05);
-      transform: scale(1.005);
+
+    .btn-outline-primary:hover {
+      background: var(--primary);
+      color: white;
+    }
+
+    /* Enhanced Table */
+    .table-container {
+      background: white;
+      border-radius: var(--border-radius);
+      /* Allow horizontal scroll when content is wide */
+      overflow-x: auto;
+      overflow-y: hidden;
+      box-shadow: var(--card-shadow);
+    }
+
+    .table {
+      margin: 0;
+      /* Ensure a reasonable minimum width so columns don't crush */
+      min-width: 1400px;
+    }
+
+    .table thead th {
+      background: var(--gradient-primary);
+      color: white;
+      font-weight: 600;
+      text-align: center;
+      border: none;
+      padding: 1rem;
+    }
+
+    .table tbody tr {
       transition: all 0.2s ease;
     }
-    
+
+    .table tbody tr:hover {
+      background: rgba(37,99,235,0.05);
+      /* Avoid transforms to preserve sticky column behavior */
+    }
+
+    .table tbody td {
+      text-align: center;
+      padding: 1rem;
+      vertical-align: middle;
+    }
+
+    /* Column widths and truncation for long content */
+  .table thead th:nth-child(1), .table tbody td:nth-child(1) { width: 70px; }   /* ID */
+  .table thead th:nth-child(2), .table tbody td:nth-child(2) { width: 90px; }   /* Photo */
+  .table thead th:nth-child(3), .table tbody td:nth-child(3) { width: 240px; }  /* Speaker */
+  .table thead th:nth-child(4), .table tbody td:nth-child(4) { width: 280px; }  /* Topic */
+  .table thead th:nth-child(5), .table tbody td:nth-child(5) { width: 140px; }  /* Program */
+  .table thead th:nth-child(6), .table tbody td:nth-child(6) { width: 200px; }  /* Department */
+  .table thead th:nth-child(7), .table tbody td:nth-child(7) { width: 120px; }  /* Day */
+  .table thead th:nth-child(8), .table tbody td:nth-child(8) { width: 120px; }  /* Start */
+  .table thead th:nth-child(9), .table tbody td:nth-child(9) { width: 120px; }  /* End */
+  .table thead th:nth-child(10), .table tbody td:nth-child(10) { width: 110px; }/* Hours */
+  .table thead th:nth-child(11), .table tbody td:nth-child(11) { width: 180px; }/* Room */
+  .table thead th:nth-child(12), .table tbody td:nth-child(12) { width: 130px; }/* Actions */
+
+    /* Truncate content for potentially long text columns */
+    .table tbody td:nth-child(3),
+    .table tbody td:nth-child(4),
+    .table tbody td:nth-child(6),
+    .table tbody td:nth-child(11) {
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      max-width: 100%;
+    }
+
+    /* Sticky actions column on the right */
+    th.col-actions {
+      position: sticky;
+      right: 0;
+      z-index: 3;
+      background: var(--gradient-primary);
+    }
+    td.col-actions {
+      position: sticky;
+      right: 0;
+      z-index: 2;
+      background: #ffffff;
+      box-shadow: -6px 0 10px rgba(0,0,0,0.05);
+    }
+
+    /* Enhanced Badges */
     .badge {
       padding: 0.5rem 0.75rem;
-      font-weight: 500;
+      font-weight: 600;
       border-radius: 20px;
+      font-size: 0.75rem;
     }
-    
-    .bg-gradient-primary {
-      background: var(--primary-gradient) !important;
+
+    .badge-program-main {
+      background: rgba(37,99,235,0.15);
+      color: #1d4ed8;
+      border: 1px solid rgba(37,99,235,0.3);
     }
-    
-    .bg-gradient-warning {
-      background: var(--warning-gradient) !important;
+
+    .badge-program-sub {
+      background: rgba(245,158,11,0.15);
+      color: #d97706;
+      border: 1px solid rgba(245,158,11,0.3);
     }
-    
+
+    .badge-count {
+      background: rgba(16,185,129,0.15);
+      color: #047857;
+      border: 1px solid rgba(16,185,129,0.3);
+    }
+
+    /* Enhanced Alerts */
     .alert {
-      border: none;
       border-radius: var(--border-radius);
-      padding: 1rem 1.25rem;
+      border: none;
+      padding: 1rem 1.5rem;
+      margin-bottom: 1.5rem;
     }
-    
+
+    .alert-success {
+      background: linear-gradient(135deg, rgba(16,185,129,0.1), rgba(5,150,105,0.1));
+      color: var(--success);
+      border: 2px solid rgba(16,185,129,0.2);
+    }
+
+    .alert-danger {
+      background: linear-gradient(135deg, rgba(239,68,68,0.1), rgba(220,38,38,0.1));
+      color: var(--danger);
+      border: 2px solid rgba(239,68,68,0.2);
+    }
+
+    /* Empty State */
+    .empty-state {
+      text-align: center;
+      padding: 4rem 2rem;
+      color: #64748b;
+    }
+
+    .empty-state i {
+      font-size: 4rem;
+      opacity: 0.3;
+      margin-bottom: 1rem;
+    }
+
+    /* Action Buttons */
     .btn-group-actions {
       display: flex;
-      gap: 0.25rem;
+      gap: 0.5rem;
+      justify-content: center;
+    }
+
+    /* Form Sections */
+    .form-section {
+      background: rgba(248, 250, 252, 0.5);
+      border-radius: 12px;
+      padding: 1.5rem;
+      margin-bottom: 1.5rem;
+      border: 1px solid rgba(0, 0, 0, 0.05);
+    }
+
+    .form-section-title {
+      font-weight: 600;
+      color: var(--dark);
+      margin-bottom: 1rem;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    /* Help Card */
+    .help-card {
+      background: linear-gradient(135deg, rgba(6,182,212,0.1), rgba(14,165,233,0.1));
+      border: 2px solid rgba(6,182,212,0.2);
+      border-radius: var(--border-radius);
+      padding: 1.5rem;
+      text-align: center;
+    }
+
+    /* Responsive */
+    @media (max-width: 768px) {
+      .main-container {
+        padding: 0 0.5rem;
+      }
+      
+      .page-header {
+        padding: 1.5rem;
+      }
+      
+      .page-title {
+        font-size: 2rem;
+      }
+      
+      .card-body-enhanced {
+        padding: 1.5rem;
+      }
+      
+      .table-container { overflow-x: auto; }
+    }
+
+    /* Animations */
+    .fade-in {
+      animation: fadeIn 0.6s ease-out;
+    }
+
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(20px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    .slide-up {
+      animation: slideUp 0.6s ease-out;
+    }
+
+    @keyframes slideUp {
+      from { transform: translateY(30px); opacity: 0; }
+      to { transform: translateY(0); opacity: 1; }
+    }
+
+    /* File Upload Enhancement */
+    .file-upload-area {
+      border: 2px dashed rgba(37,99,235,0.3);
+      border-radius: 12px;
+      padding: 1rem;
+      text-align: center;
+      background: rgba(37,99,235,0.05);
+      transition: all 0.3s ease;
+    }
+
+    .file-upload-area:hover {
+      border-color: var(--primary);
+      background: rgba(37,99,235,0.1);
+    }
+
+    .file-upload-area.has-file {
+      border-color: var(--success);
+      background: rgba(16,185,129,0.05);
     }
   </style>
 </head>
-<body class="p-3">
-  <div class="container-fluid">
-    <div class="main-container">
-      <div class="page-header">
-        <div class="d-flex justify-content-between align-items-center">
-          <div>
-            <h1 class="page-title"><i class="bi bi-people-fill me-2"></i>Speaker Management</h1>
-            <p class="page-subtitle">Manage speakers, presentations, and schedule assignments</p>
+<body>
+<div class="main-container">
+  <!-- Enhanced Page Header -->
+  <div class="page-header fade-in">
+    <h1 class="page-title">Speaker Management</h1>
+    <p class="page-subtitle">Manage speakers, presentations, schedules, and technical assignments</p>
+    <div class="mt-3">
+      <a href="Admin_dashboard.php" class="btn btn-outline-primary">
+        <i class="bi bi-arrow-left me-2"></i>Back to Dashboard
+      </a>
+    </div>
+  </div>
+
+  <!-- Enhanced Messages -->
+  <?php if (!empty($errors)): ?>
+    <div class="alert alert-danger fade-in">
+      <i class="bi bi-exclamation-triangle-fill me-2"></i>
+      <strong>Please fix the following issues:</strong>
+      <ul class="mb-0 mt-2">
+        <?php foreach ($errors as $err): ?><li><?= e($err) ?></li><?php endforeach; ?>
+      </ul>
+    </div>
+  <?php endif; ?>
+
+  <?php if ($success): ?>
+    <div class="alert alert-success fade-in">
+      <i class="bi bi-check-circle-fill me-2"></i>
+      <?= e($success) ?>
+    </div>
+  <?php endif; ?>
+
+  <!-- Enhanced Speakers List -->
+  <div class="row g-4 align-items-stretch">
+    <div class="col-12 col-md-7 col-xl-8">
+      <div class="enhanced-card slide-up">
+        <div class="card-header-enhanced">
+          <div class="d-flex justify-content-between align-items-center">
+            <h5 class="mb-0">
+              <i class="bi bi-people me-2"></i>
+              Speakers Directory
+            </h5>
+            <span class="badge badge-count"><?= count($speakers) ?> speakers</span>
           </div>
-          <a href="Admin_dashboard.php" class="btn btn-light btn-lg">
-            <i class="bi bi-arrow-left me-2"></i>Back to Dashboard
-          </a>
+        </div>
+        <div class="card-body-enhanced p-0">
+          <?php if (empty($speakers)): ?>
+            <div class="empty-state">
+              <i class="bi bi-person-plus"></i>
+              <h6>No Speakers Added Yet</h6>
+              <p class="mb-3">Create your first speaker profile to get started</p>
+              <p class="small text-muted">Use the form on the right to add speaker details, photos, and presentations</p>
+            </div>
+          <?php else: ?>
+            <div class="table-container">
+              <table class="table table-hover mb-0 align-middle">
+                <thead>
+                  <tr>
+                    <th><i class="bi bi-hash me-1"></i>ID</th>
+                    <th><i class="bi bi-camera me-1"></i>Photo</th>
+                    <th><i class="bi bi-person me-1"></i>Speaker</th>
+                    <th><i class="bi bi-journal-text me-1"></i>Topic</th>
+                    <th><i class="bi bi-diagram-3 me-1"></i>Program</th>
+                    <th><i class="bi bi-building me-1"></i>Department</th>
+                    <th><i class="bi bi-calendar2-week me-1"></i>Day</th>
+                    <th><i class="bi bi-clock me-1"></i>Start</th>
+                    <th><i class="bi bi-clock-history me-1"></i>End</th>
+                    <th><i class="bi bi-hourglass-split me-1"></i>Hours</th>
+                    <th><i class="bi bi-geo-alt me-1"></i>Room</th>
+                    <th class="col-actions"><i class="bi bi-gear me-1"></i>Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <?php foreach ($speakers as $s): ?>
+                    <tr>
+                      <td><span class="badge bg-light text-dark"><?= (int)$s['id'] ?></span></td>
+                      <td>
+                        <?php if (!empty($s['photo_url'])): ?>
+                          <img src="<?= e(asset_url($s['photo_url'])) ?>" class="speaker-photo" alt="<?= e($s['name']) ?>" title="<?= e($s['name']) ?>">
+                        <?php else: ?>
+                          <div class="empty-photo" title="No photo uploaded">
+                            <i class="bi bi-person"></i>
+                          </div>
+                        <?php endif; ?>
+                      </td>
+                      <td>
+                        <div class="fw-bold text-truncate" style="max-width: 220px;" title="<?= e($s['name']) ?>"><?= e($s['name']) ?></div>
+                        <div class="small text-muted text-truncate" style="max-width: 220px;" title="<?= e($s['title'] ?: 'No title specified') ?>"><?= e($s['title'] ?: 'No title specified') ?></div>
+                        <?php if (!empty($s['presentation_url'])): ?>
+                          <div class="small text-success mt-1">
+                            <i class="bi bi-file-earmark-slides me-1"></i>Presentation Available
+                          </div>
+                        <?php endif; ?>
+                      </td>
+                      <td>
+                        <div class="small fw-semibold text-truncate" style="max-width: 260px;" title="<?= e($s['topic'] ?: '—') ?>"><?= e($s['topic'] ?: '—') ?></div>
+                      </td>
+                      <td>
+                        <span class="badge badge-program-<?= ($s['program_type']??'main')==='sub' ? 'sub' : 'main' ?>">
+                          <?php if (($s['program_type']??'main')==='sub'): ?>
+                            <i class="bi bi-diagram-2 me-1"></i>Sub Program
+                          <?php else: ?>
+                            <i class="bi bi-house me-1"></i>Main Program
+                          <?php endif; ?>
+                        </span>
+                      </td>
+                      <td>
+                        <div class="small text-truncate" style="max-width: 180px;" title="<?= e($s['technical_department_name'] ?? ($s['program_type']==='sub' ? 'Not assigned' : '—')) ?>">
+                          <?= e($s['technical_department_name'] ?? ($s['program_type']==='sub' ? 'Not assigned' : '—')) ?>
+                        </div>
+                      </td>
+                      <td>
+                        <div class="fw-semibold text-primary" title="<?= e($s['day_label'] ?: '-') ?>"><?= e($s['day_label'] ?: '-') ?></div>
+                      </td>
+                      <td>
+                        <span class="badge bg-light text-dark" title="<?= e($s['start_time'] ?: '-') ?>"><?= e($s['start_time'] ?: '-') ?></span>
+                      </td>
+                      <td>
+                        <span class="badge bg-light text-dark" title="<?= e($s['end_time'] ?: '-') ?>"><?= e($s['end_time'] ?: '-') ?></span>
+                      </td>
+                      <td>
+                        <?php
+                          $hrsText = '—';
+                          if (!empty($s['start_time']) && !empty($s['end_time'])) {
+                            $start = DateTime::createFromFormat('H:i:s', $s['start_time']) ?: DateTime::createFromFormat('H:i', $s['start_time']);
+                            $end = DateTime::createFromFormat('H:i:s', $s['end_time']) ?: DateTime::createFromFormat('H:i', $s['end_time']);
+                            if ($start && $end) {
+                              $diffSec = $end->getTimestamp() - $start->getTimestamp();
+                              if ($diffSec > 0) {
+                                $hrs = $diffSec / 3600;
+                                $hrsText = number_format($hrs, 2) . ' hrs';
+                              } else {
+                                $hrsText = '0.00 hrs';
+                              }
+                            }
+                          }
+                          echo '<span class="badge bg-light text-dark">' . e($hrsText) . '</span>';
+                        ?>
+                      </td>
+                      <td>
+                        <div class="small fw-medium text-truncate" style="max-width: 180px;" title="<?= e($s['room_name'] ?: 'No room assigned') ?>"><?= e($s['room_name'] ?: 'No room assigned') ?></div>
+                      </td>
+                      <td class="col-actions">
+                        <div class="btn-group-actions">
+                          <a href="admin_speaker_manage.php?edit=<?= (int)$s['id'] ?>" 
+                             class="btn btn-sm btn-gradient-primary" 
+                             title="Edit Speaker Details">
+                            <i class="bi bi-pencil"></i>
+                          </a>
+                          <form method="post" class="d-inline" onsubmit="return confirm('Are you sure you want to delete <?= e($s['name']) ?>? This action cannot be undone and will remove all associated data.');">
+                            <input type="hidden" name="csrf_token" value="<?= e($_SESSION['csrf_token']) ?>">
+                            <input type="hidden" name="action" value="delete">
+                            <input type="hidden" name="id" value="<?= (int)$s['id'] ?>">
+                            <button class="btn btn-sm btn-gradient-danger" title="Delete Speaker">
+                              <i class="bi bi-trash"></i>
+                            </button>
+                          </form>
+                        </div>
+                      </td>
+                    </tr>
+                  <?php endforeach; ?>
+                </tbody>
+              </table>
+            </div>
+          <?php endif; ?>
         </div>
       </div>
-      
-      <div class="p-4">
+    </div>
 
-        <!-- Alerts -->
-        <?php if (!empty($errors)): ?>
-          <div class="alert alert-danger d-flex align-items-center">
-            <i class="bi bi-exclamation-triangle-fill me-2 fs-4"></i>
-            <div>
-              <strong>Please fix the following issues:</strong>
-              <ul class="mb-0 mt-1"><?php foreach ($errors as $err): ?><li><?= e($err) ?></li><?php endforeach; ?></ul>
-            </div>
-          </div>
-        <?php endif; ?>
+    <!-- Enhanced Add/Edit Speaker Form -->
+  <div class="col-12 col-md-5 col-xl-4">
+      <div class="enhanced-card slide-up">
+        <div class="card-header-enhanced">
+          <?php if ($edit): ?>
+            <h5 class="mb-0">
+              <i class="bi bi-pencil-square me-2"></i>
+              Edit Speaker
+              <span class="badge badge-count ms-2">#<?= (int)$edit['id'] ?></span>
+            </h5>
+          <?php else: ?>
+            <h5 class="mb-0">
+              <i class="bi bi-person-plus me-2"></i>
+              Add New Speaker
+            </h5>
+          <?php endif; ?>
+        </div>
+        <div class="card-body-enhanced">
+          <?php if ($edit): ?>
+            <form method="post" enctype="multipart/form-data" class="enhanced-form">
+              <input type="hidden" name="csrf_token" value="<?= e($_SESSION['csrf_token']) ?>">
+              <input type="hidden" name="action" value="update">
+              <input type="hidden" name="id" value="<?= (int)$edit['id'] ?>">
 
-        <?php if ($success): ?>
-          <div class="alert alert-success d-flex align-items-center">
-            <i class="bi bi-check-circle-fill me-2 fs-4"></i>
-            <div><?= e($success) ?></div>
-          </div>
-        <?php endif; ?>
+              <!-- Basic Information Section -->
+              <div class="form-section">
+                <h6 class="form-section-title">
+                  <i class="bi bi-person me-2"></i>Basic Information
+                </h6>
+                
+                <div class="form-group">
+                  <label class="form-label">
+                    <i class="bi bi-person me-1"></i>Speaker Name
+                  </label>
+                  <input name="name" class="form-control" required value="<?= e($edit['name']) ?>" placeholder="Enter speaker's full name">
+                </div>
 
-        <!-- Speakers List -->
-        <div class="row">
-          <div class="col-lg-8">
-            <div class="card">
-              <div class="card-header">
-                <div class="d-flex align-items-center">
-                  <i class="bi bi-list-ul me-2 text-primary fs-5"></i>
-                  <h5 class="card-title mb-0">Speakers</h5>
-                  <span class="badge bg-secondary ms-auto"><?= count($speakers) ?> speakers</span>
+                <div class="form-group">
+                  <label class="form-label">
+                    <i class="bi bi-briefcase me-1"></i>Designation
+                  </label>
+                  <input name="title" class="form-control" value="<?= e($edit['title']) ?>" placeholder="Job title or designation">
+                </div>
+
+                <div class="form-group">
+                  <label class="form-label">
+                    <i class="bi bi-card-text me-1"></i>Session Title / Topic
+                  </label>
+                  <input name="topic" class="form-control" value="<?= e($edit['topic'] ?? '') ?>" placeholder="Talk title or session topic">
+                </div>
+
+                <div class="form-group">
+                  <label class="form-label">
+                    <i class="bi bi-diagram-3 me-1"></i>Program Type
+                  </label>
+                  <select name="program_type" class="form-select" required>
+                    <option value="main" <?= ($edit['program_type'] ?? 'main')==='main'?'selected':'' ?>>🏢 Main Program</option>
+                    <option value="sub" <?= ($edit['program_type'] ?? 'main')==='sub'?'selected':'' ?>>🏗️ Sub Program</option>
+                  </select>
                 </div>
               </div>
-              <div class="card-body p-0">
-                <?php if (empty($speakers)): ?>
-                  <div class="text-center text-muted py-5">
-                    <i class="bi bi-person-plus fs-1 mb-3 d-block text-light"></i>
-                    <h6>No speakers added yet</h6>
-                    <p class="mb-0">Create your first speaker using the form.</p>
-                  </div>
-                <?php else: ?>
-                  <div class="table-responsive">
-                    <table class="table table-hover mb-0 align-middle">
-                      <thead class="table-light">
-                        <tr>
-                          <th class="fw-semibold">#</th>
-                          <th class="fw-semibold"><i class="bi bi-person-circle me-1"></i>Photo</th>
-                          <th class="fw-semibold"><i class="bi bi-person me-1"></i>Name</th>
-                          <th class="fw-semibold"><i class="bi bi-briefcase me-1"></i>Title</th>
-                          <th class="fw-semibold"><i class="bi bi-diagram-3 me-1"></i>Program</th>
-                          <th class="fw-semibold"><i class="bi bi-building me-1"></i>Tech Dept</th>
-                          <th class="fw-semibold"><i class="bi bi-calendar-day me-1"></i>Day</th>
-                          <th class="fw-semibold"><i class="bi bi-door-open me-1"></i>Room</th>
-                          <th class="fw-semibold"><i class="bi bi-clock me-1"></i>Time</th>
-                          <th class="fw-semibold text-center">Actions</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        <?php foreach ($speakers as $s): ?>
-                          <tr>
-                            <td class="text-muted"><?= (int)$s['id'] ?></td>
-                            <td>
-                              <?php if (!empty($s['photo_url'])): ?>
-                                <img src="<?= e(asset_url($s['photo_url'])) ?>" class="speaker-photo" alt="<?= e($s['name']) ?>">
-                              <?php else: ?>
-                                <div class="empty-photo">
-                                  <i class="bi bi-person fs-5"></i>
-                                </div>
-                              <?php endif; ?>
-                            </td>
-                            <td>
-                              <div class="fw-medium"><?= e($s['name']) ?></div>
-                              <?php if (!empty($s['presentation_url'])): ?>
-                                <small class="text-success">
-                                  <i class="bi bi-file-earmark-slides me-1"></i>Has presentation
-                                </small>
-                              <?php endif; ?>
-                            </td>
-                            <td class="small"><?= e($s['title']) ?></td>
-                            <td>
-                              <span class="badge bg-gradient-<?php echo ($s['program_type']??'main')==='sub'?'warning':'primary'; ?> d-flex align-items-center" style="width: fit-content;">
-                                <?php if (($s['program_type']??'main')==='sub'): ?>
-                                  <i class="bi bi-diagram-2 me-1"></i>SUB
-                                <?php else: ?>
-                                  <i class="bi bi-house me-1"></i>MAIN
-                                <?php endif; ?>
-                              </span>
-                            </td>
-                            <td class="small"><?= e($s['technical_department_name'] ?? ($s['program_type']==='sub' ? 'Not assigned' : '—')) ?></td>
-                            <td><strong><?= e($s['day_label'] ?: '-') ?></strong></td>
-                            <td><?= e($s['room_name'] ?: '-') ?></td>
-                            <td class="small">
-                              <?php
-                                $t1 = $s['start_time'] ?? '';
-                                $t2 = $s['end_time'] ?? '';
-                                $timeText = $t1 . ($t2 ? ' - ' . $t2 : '');
-                                echo e($timeText ?: '-');
-                              ?>
-                            </td>
-                            <td>
-                              <div class="btn-group-actions justify-content-center">
-                                <a href="admin_speaker_manage.php?edit=<?= (int)$s['id'] ?>" 
-                                   class="btn btn-sm btn-gradient-primary" 
-                                   title="Edit Speaker">
-                                  <i class="bi bi-pencil"></i>
-                                </a>
-                                <form method="post" class="d-inline" onsubmit="return confirm('Are you sure you want to delete this speaker? This action cannot be undone.');">
-                                  <input type="hidden" name="csrf_token" value="<?= e($_SESSION['csrf_token']) ?>">
-                                  <input type="hidden" name="action" value="delete">
-                                  <input type="hidden" name="id" value="<?= (int)$s['id'] ?>">
-                                  <button class="btn btn-sm btn-gradient-danger" title="Delete Speaker">
-                                    <i class="bi bi-trash"></i>
-                                  </button>
-                                </form>
-                              </div>
-                            </td>
-                          </tr>
-                        <?php endforeach; ?>
-                      </tbody>
-                    </table>
-                  </div>
-                <?php endif; ?>
+
+              <div class="form-group" id="techDeptWrapperEdit">
+                <label class="form-label">
+                  <i class="bi bi-building me-1"></i>Technical Department
+                </label>
+                <select name="technical_department_id" class="form-select" id="technical_department_id_edit">
+                  <option value="">Select department</option>
+                  <?php foreach ($technical_departments as $td): ?>
+                    <option value="<?= (int)$td['id'] ?>" <?= (isset($edit['technical_department_id']) && (int)$edit['technical_department_id']===$td['id'])?'selected':'' ?>>
+                      <?= e($td['name']) ?>
+                    </option>
+                  <?php endforeach; ?>
+                </select>
+                <div class="form-text">
+                  <i class="bi bi-info-circle me-1"></i>Required for Sub Program speakers
+                </div>
               </div>
-            </div>
-          </div>
 
-          <!-- Add/Edit Form -->
-          <div class="col-lg-4">
-            <div class="card">
-              <div class="card-header">
-                <?php if ($edit): ?>
-                  <div class="d-flex align-items-center">
-                    <i class="bi bi-pencil-square me-2 text-warning fs-5"></i>
-                    <h5 class="card-title mb-0">Edit Speaker</h5>
-                    <span class="badge bg-warning ms-auto">#<?= (int)$edit['id'] ?></span>
+              <!-- Schedule & Location Section -->
+              <div class="form-section">
+                <h6 class="form-section-title">
+                  <i class="bi bi-calendar-event me-2"></i>Schedule & Location
+                </h6>
+
+                <div class="form-group">
+                  <label class="form-label">
+                    <i class="bi bi-calendar-day me-1"></i>Day Filter
+                  </label>
+                  <select id="daySelectEdit" class="form-select">
+                    <option value="">All days</option>
+                    <?php foreach ($days as $d): ?>
+                      <option value="<?= (int)$d['id'] ?>"><?= e($d['label']) ?></option>
+                    <?php endforeach; ?>
+                  </select>
+                </div>
+                
+                <div class="form-group">
+                  <label class="form-label">
+                    <i class="bi bi-geo-alt me-1"></i>Function Room
+                  </label>
+                  <select name="room_id" id="roomSelectEdit" class="form-select" required>
+                    <option value="">Select room</option>
+                    <?php foreach ($rooms as $rm): ?>
+                      <option value="<?= (int)$rm['id'] ?>" <?= $edit['room_id'] == $rm['id'] ? 'selected' : '' ?>>
+                        <?= e($rm['name']) ?> <?= $rm['day_number'] ? ' (Day '.$rm['day_number'].')' : '' ?>
+                      </option>
+                    <?php endforeach; ?>
+                  </select>
+                  <small id="noRoomsEdit" class="text-danger d-none">No rooms found for selected day.</small>
+                </div>
+
+                <div class="row g-3">
+                  <div class="col-md-6">
+                    <label class="form-label">
+                      <i class="bi bi-clock me-1"></i>Start Time
+                    </label>
+                    <input name="start_time" type="time" class="form-control" value="<?= e($edit['start_time']) ?>">
                   </div>
-                <?php else: ?>
-                  <div class="d-flex align-items-center">
-                    <i class="bi bi-person-plus me-2 text-success fs-5"></i>
-                    <h5 class="card-title mb-0">Add Speaker</h5>
+                  <div class="col-md-6">
+                    <label class="form-label">
+                      <i class="bi bi-clock-history me-1"></i>End Time
+                    </label>
+                    <input name="end_time" type="time" class="form-control" value="<?= e($edit['end_time'] ?? '') ?>">
                   </div>
-                <?php endif; ?>
+                </div>
               </div>
-              <div class="card-body">
-                <?php if ($edit): ?>
-              <form method="post" enctype="multipart/form-data" novalidate>
-                <input type="hidden" name="csrf_token" value="<?= e($_SESSION['csrf_token']) ?>">
-                <input type="hidden" name="action" value="update">
-                <input type="hidden" name="id" value="<?= (int)$edit['id'] ?>">
-
-                  <div class="mb-3">
-                    <label class="form-label fw-semibold">
-                      <i class="bi bi-person me-1 text-primary"></i>Speaker Name
-                    </label>
-                    <input name="name" class="form-control" required value="<?= e($edit['name']) ?>" placeholder="Enter speaker's full name">
-                  </div>
-
-                  <div class="mb-3">
-                    <label class="form-label fw-semibold">
-                      <i class="bi bi-briefcase me-1 text-secondary"></i>Title / Designation
-                    </label>
-                    <input name="title" class="form-control" value="<?= e($edit['title']) ?>" placeholder="Job title or designation">
-                  </div>
-
-                  <div class="mb-3">
-                    <label class="form-label fw-semibold">
-                      <i class="bi bi-diagram-3 me-1 text-info"></i>Program Type
-                    </label>
-                    <select name="program_type" class="form-select" required>
-                      <option value="main" <?= ($edit['program_type'] ?? 'main')==='main'?'selected':'' ?>>🏢 Main Program</option>
-                      <option value="sub" <?= ($edit['program_type'] ?? 'main')==='sub'?'selected':'' ?>>🏗️ Sub Program</option>
-                    </select>
-                  </div>
-
-                  <div class="mb-3" id="techDeptWrapperEdit">
-                    <label class="form-label fw-semibold">
-                      <i class="bi bi-building me-1 text-warning"></i>Technical Department
-                    </label>
-                    <select name="technical_department_id" class="form-select" id="technical_department_id_edit">
-                      <option value="">Select department</option>
-                      <?php foreach ($technical_departments as $td): ?>
-                        <option value="<?= (int)$td['id'] ?>" <?= (isset($edit['technical_department_id']) && (int)$edit['technical_department_id']===$td['id'])?'selected':'' ?>>
-                          <?= e($td['name']) ?>
-                        </option>
-                      <?php endforeach; ?>
-                    </select>
-                    <small class="form-text text-muted mt-1">
-                      <i class="bi bi-info-circle me-1"></i>Required for Sub Program speakers
-                    </small>
-                  </div>
-
-                  <div class="mb-3">
-                    <label class="form-label fw-semibold">
-                      <i class="bi bi-calendar-day me-1 text-success"></i>Day Filter
-                    </label>
-                    <select id="daySelectEdit" class="form-select">
-                      <option value="">All days</option>
-                      <?php foreach ($days as $d): ?>
-                        <option value="<?= (int)$d['id'] ?>"><?= e($d['label']) ?></option>
-                      <?php endforeach; ?>
-                    </select>
-                  </div>
-                  
-                  <div class="mb-3">
-                    <label class="form-label fw-semibold">
-                      <i class="bi bi-door-open me-1 text-primary"></i>Function Room
-                    </label>
-                    <select name="room_id" id="roomSelectEdit" class="form-select" required>
-                      <option value="">Select room</option>
-                      <?php foreach ($rooms as $rm): ?>
-                        <option value="<?= (int)$rm['id'] ?>" <?= $edit['room_id'] == $rm['id'] ? 'selected' : '' ?>>
-                          <?= e($rm['name']) ?> <?= $rm['day_number'] ? ' (Day '.$rm['day_number'].')' : '' ?>
-                        </option>
-                      <?php endforeach; ?>
-                    </select>
-                    <small id="noRoomsEdit" class="text-danger d-none">No rooms found for selected day.</small>
-                  </div>
-
-                  <div class="row mb-3">
-                    <div class="col-md-6">
-                      <label class="form-label fw-semibold">
-                        <i class="bi bi-clock me-1 text-success"></i>Start Time
-                      </label>
-                      <input name="start_time" type="time" class="form-control" value="<?= e($edit['start_time']) ?>">
-                    </div>
-                    <div class="col-md-6">
-                      <label class="form-label fw-semibold">
-                        <i class="bi bi-clock-history me-1 text-warning"></i>End Time
-                      </label>
-                      <input name="end_time" type="time" class="form-control" value="<?= e($edit['end_time'] ?? '') ?>">
-                    </div>
-                  </div>
 
                   <div class="mb-3">
                     <label class="form-label fw-semibold">
@@ -898,9 +1198,16 @@ if (isset($_GET['edit']) && is_numeric($_GET['edit'])) {
 
                     <div class="mb-3">
                       <label class="form-label fw-semibold">
-                        <i class="bi bi-briefcase me-1 text-secondary"></i>Title / Designation
+                        <i class="bi bi-briefcase me-1 text-secondary"></i>Designation
                       </label>
                       <input name="title" class="form-control" value="" placeholder="Job title or designation">
+                    </div>
+
+                    <div class="mb-3">
+                      <label class="form-label fw-semibold">
+                        <i class="bi bi-card-text me-1 text-primary"></i>Session Title / Topic
+                      </label>
+                      <input name="topic" class="form-control" value="" placeholder="Talk title or session topic">
                     </div>
 
                     <div class="mb-3">
@@ -1025,13 +1332,15 @@ if (isset($_GET['edit']) && is_numeric($_GET['edit'])) {
 <script>
 const rooms = <?= json_encode($rooms, JSON_HEX_TAG|JSON_HEX_AMP|JSON_HEX_APOS|JSON_HEX_QUOT) ?>;
 
-function filterRoomsFor(selectEl, dayId, selectedRoomId = null, noRoomsEl = null) {
+function filterRoomsFor(selectEl, dayId, selectedRoomId = null, noRoomsEl = null, programType = null) {
   // Reset options
   selectEl.innerHTML = '<option value="">-- select room --</option>';
   let count = 0;
 
   rooms.forEach(r => {
-    if (!dayId || String(r.day_id) === String(dayId)) {
+    const matchesDay = !dayId || String(r.day_id) === String(dayId);
+    const matchesProgram = !programType || String(r.program_type || 'main') === String(programType);
+    if (matchesDay && matchesProgram) {
       const opt = document.createElement('option');
       const suffix = r.day_label ? (' (' + r.day_label + ')') : (r.day_number ? ' (Day ' + r.day_number + ')' : '');
       opt.value = r.id;
@@ -1050,16 +1359,23 @@ document.addEventListener('DOMContentLoaded', () => {
   const daySelect = document.getElementById('daySelect');
   const roomSelect = document.getElementById('roomSelect');
   const noRoomsAdd = document.getElementById('noRoomsAdd');
+  const programTypeAdd = document.querySelector('form input[name="action"][value="add"]')?.closest('form')?.querySelector('select[name="program_type"]');
   if (daySelect && roomSelect) {
-    daySelect.addEventListener('change', () => {
-      filterRoomsFor(roomSelect, daySelect.value, null, noRoomsAdd);
-    });
+    const refilterAdd = () => {
+      const pt = programTypeAdd ? programTypeAdd.value : null;
+      filterRoomsFor(roomSelect, daySelect.value, null, noRoomsAdd, pt);
+    };
+    daySelect.addEventListener('change', refilterAdd);
+    if (programTypeAdd) programTypeAdd.addEventListener('change', refilterAdd);
+    // Initial population
+    refilterAdd();
   }
 
   // EDIT form wiring
   const daySelectEdit = document.getElementById('daySelectEdit');
   const roomSelectEdit = document.getElementById('roomSelectEdit');
   const noRoomsEdit = document.getElementById('noRoomsEdit');
+  const programTypeEdit = document.querySelector('form input[name="action"][value="update"]')?.closest('form')?.querySelector('select[name="program_type"]');
 
   if (daySelectEdit && roomSelectEdit) {
     // Determine the currently selected room (from PHP-rendered selected option)
@@ -1069,16 +1385,21 @@ document.addEventListener('DOMContentLoaded', () => {
     // Preselect day based on the room's day_id, then filter rooms and keep selection
     if (roomObj && roomObj.day_id) {
       daySelectEdit.value = String(roomObj.day_id);
-      filterRoomsFor(roomSelectEdit, daySelectEdit.value, selectedRoomId, noRoomsEdit);
+      const pt = programTypeEdit ? programTypeEdit.value : null;
+      filterRoomsFor(roomSelectEdit, daySelectEdit.value, selectedRoomId, noRoomsEdit, pt);
     } else {
       // No current room or day mapping; leave as-is but wire change
-      filterRoomsFor(roomSelectEdit, daySelectEdit.value || '', selectedRoomId, noRoomsEdit);
+      const pt = programTypeEdit ? programTypeEdit.value : null;
+      filterRoomsFor(roomSelectEdit, daySelectEdit.value || '', selectedRoomId, noRoomsEdit, pt);
     }
 
     // When day changes, refilter and clear selection if not available
-    daySelectEdit.addEventListener('change', () => {
-      filterRoomsFor(roomSelectEdit, daySelectEdit.value, null, noRoomsEdit);
-    });
+    const refilterEdit = () => {
+      const pt = programTypeEdit ? programTypeEdit.value : null;
+      filterRoomsFor(roomSelectEdit, daySelectEdit.value, null, noRoomsEdit, pt);
+    };
+    daySelectEdit.addEventListener('change', refilterEdit);
+    if (programTypeEdit) programTypeEdit.addEventListener('change', refilterEdit);
   }
 
   // Tech Department toggling

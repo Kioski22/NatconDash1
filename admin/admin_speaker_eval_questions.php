@@ -580,9 +580,13 @@ function renderQuestions(){
               <button class='btn btn-sm btn-gradient-primary' onclick='editQuestion(${q.id})' title='Edit Question'>
                 <i class="bi bi-pencil"></i>
               </button>
-              <button class='btn btn-sm btn-gradient-danger' onclick='deleteQuestion(${q.id})' title='Deactivate Question'>
-                <i class="bi bi-pause"></i>
-              </button>
+              ${q.is_active==0
+                ? `<button class='btn btn-sm btn-gradient-success' onclick='activateQuestion(${q.id})' title='Activate Question'>
+                     <i class="bi bi-play"></i>
+                   </button>`
+                : `<button class='btn btn-sm btn-gradient-danger' onclick='deleteQuestion(${q.id})' title='Deactivate Question'>
+                     <i class="bi bi-pause"></i>
+                   </button>`}
             </div>
           </div>
           <div class='fw-semibold mb-2'>${escapeHtml(q.question_text)}</div>
@@ -643,6 +647,7 @@ function editQuestion(id){
   document.getElementById('questionForm').scrollIntoView({ behavior: 'smooth', block: 'center' });
 }
 function deleteQuestion(id){ if(!confirm('Deactivate this question? (It will be marked inactive)')) return; api('',{method:'POST',body:JSON.stringify({action:'delete_question',id})}).then(r=>{ if(r.ok){ loadQuestions(); } }); }
+function activateQuestion(id){ if(!confirm('Activate this question?')) return; api('',{method:'POST',body:JSON.stringify({action:'activate_question',id})}).then(r=>{ if(r.ok){ loadQuestions(); } }); }
 function resetForm(){ 
   // Reset form header
   const formHeaderContent = document.getElementById('formHeaderContent');

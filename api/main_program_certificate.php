@@ -32,24 +32,47 @@ function aggregate(mysqli $db, int $user_id): array {
   if($res){ while($row=$res->fetch_assoc()) $speakers[]=[ 'id'=>(int)$row['id'], 'name'=>$row['name'], 'title'=>$row['title'] ?? '', 'day_date'=>$row['day_date']]; $res->close(); }
   if(!$speakers) return ['total'=>0,'eval_completed'=>0,'quiz_required'=>0,'quiz_completed'=>0,'complete'=>true,'complete_relaxed'=>true,'missing'=>[], 'titles'=>[], 'completed_titles'=>[]];
   if($chk=$db->query("SHOW TABLES LIKE 'quiz_questions'")){ $hasQuizQuestions=$chk->num_rows>0; $chk->close(); }
+  // Passing threshold (percentage) from admin settings
+  $passingPercent=0; if($chk=$db->query("SHOW TABLES LIKE 'admin_settings'")){ if($chk->num_rows>0){
+      // Prefer Main Program-specific threshold, fallback to legacy/global
+      $val=null; if($st=$db->prepare("SELECT setting_value FROM admin_settings WHERE setting_key='main_cert_min_score' LIMIT 1")){ $st->execute(); $st->bind_result($val); $st->fetch(); $st->close(); }
+      if($val===null || $val===''){
+        if($st2=$db->prepare("SELECT setting_value FROM admin_settings WHERE setting_key='cert_min_score' LIMIT 1")){ $st2->execute(); $st2->bind_result($val); $st2->fetch(); $st2->close(); }
+      }
+      if($val!==null && $val!=='') $passingPercent=(int)$val;
+    } $chk->close(); }
   $total=count($speakers); $evalCompleted=0; $quizRequired=0; $quizCompleted=0; $missing=[]; $incompleteFutureOnly=true; $today=date('Y-m-d');
   $titles=[]; // all main program speaker titles (fallback to name)
   $completedTitles=[]; // only those the user fully completed
   foreach($speakers as $sp){ $sid=$sp['id']; $sname=$sp['name']; $dayDate=$sp['day_date']; $sTitle=trim((string)$sp['title']); $displayTitle = $sTitle!=='' ? $sTitle : $sname; $titles[]=$displayTitle;
-    $evalDone=false; $quizDone=false; $requiresQuiz=false; $quizId=0;
+    $evalDone=false; $quizDone=false; $requiresQuiz=false; $quizId=0; $quizPassed=false;
     if($q=$db->prepare('SELECT id FROM quizzes WHERE speaker_id=? LIMIT 1')){ $q->bind_param('i',$sid); $q->execute(); $q->bind_result($quizId); if($q->fetch()) $requiresQuiz=true; $q->close(); }
     if(!$requiresQuiz && $hasQuizQuestions){ if($q2=$db->prepare('SELECT 1 FROM quiz_questions WHERE speaker_id=? LIMIT 1')){ $q2->bind_param('i',$sid); $q2->execute(); $q2->bind_result($d); if($q2->fetch()) $requiresQuiz=true; $q2->close(); } }
     if($requiresQuiz) $quizRequired++;
-    if($requiresQuiz){ if($quizId>0){ if($qr=$db->prepare('SELECT 1 FROM quiz_responses WHERE quiz_id=? AND user_id=? LIMIT 1')){ $qr->bind_param('ii',$quizId,$user_id); $qr->execute(); $qr->bind_result($d); if($qr->fetch()) $quizDone=true; $qr->close(); }} if(!$quizDone){ if($qr2=$db->prepare('SELECT 1 FROM quiz_responses WHERE speaker_id=? AND user_id=? LIMIT 1')){ $qr2->bind_param('ii',$sid,$user_id); $qr2->execute(); $qr2->bind_result($d); if($qr2->fetch()) $quizDone=true; $qr2->close(); }} }
-    if($quizDone) $quizCompleted++;
+    if($requiresQuiz){
+      // Check response and evaluate PASS based on threshold
+      $userHasResponse=false; $userScore=null;
+      if($quizId>0){ if($qr=$db->prepare('SELECT score FROM quiz_responses WHERE quiz_id=? AND user_id=? LIMIT 1')){ $qr->bind_param('ii',$quizId,$user_id); $qr->execute(); $qr->bind_result($sc); if($qr->fetch()){ $userHasResponse=true; $userScore=(int)$sc; } $qr->close(); }}
+      if(!$userHasResponse){ if($qr2=$db->prepare('SELECT score FROM quiz_responses WHERE speaker_id=? AND user_id=? LIMIT 1')){ $qr2->bind_param('ii',$sid,$user_id); $qr2->execute(); $qr2->bind_result($sc); if($qr2->fetch()){ $userHasResponse=true; $userScore=(int)$sc; } $qr2->close(); }}
+      if($userHasResponse){
+        $quizDone=true;
+        // Determine total questions
+        $totalGradable=0; $ansJson=null; $qJson=null;
+        if($quizId>0){ if($qq=$db->prepare('SELECT answers,questions FROM quizzes WHERE id=? LIMIT 1')){ $qq->bind_param('i',$quizId); $qq->execute(); $qq->bind_result($ansJson,$qJson); if($qq->fetch()){ /*noop*/ } $qq->close(); } }
+        if($ansJson){ $arr=json_decode((string)$ansJson,true); if(is_array($arr)) $totalGradable=count($arr); }
+        if($totalGradable<=0 && $qJson){ $arr=json_decode((string)$qJson,true); if(is_array($arr)) $totalGradable=count($arr); }
+        if($totalGradable>0){ $pct = ($userScore*100.0)/$totalGradable; $quizPassed = ((int)round($pct) >= (int)$passingPercent); }
+      }
+      if($quizPassed) $quizCompleted++;
+    }
   if($ev=$db->prepare('SELECT 1 FROM speaker_evaluations WHERE speaker_id=? AND user_id=? LIMIT 1')){ $ev->bind_param('ii',$sid,$user_id); $ev->execute(); $ev->bind_result($d); if($ev->fetch()) $evalDone=true; $ev->close(); }
   if(!$evalDone && $ev2=$db->prepare('SELECT 1 FROM speaker_eval_responses WHERE speaker_id=? AND user_id=? LIMIT 1')){ $ev2->bind_param('ii',$sid,$user_id); $ev2->execute(); $ev2->bind_result($dd); if($ev2->fetch()) $evalDone=true; $ev2->close(); }
     if($evalDone) $evalCompleted++;
-    $isCompleteForSpeaker = $evalDone && (!$requiresQuiz || $quizDone);
+    $isCompleteForSpeaker = $evalDone && (!$requiresQuiz || $quizPassed);
     if($isCompleteForSpeaker){ $completedTitles[]=$displayTitle; }
     if(!$isCompleteForSpeaker){
       if(!$dayDate || $dayDate <= $today){ $incompleteFutureOnly=false; }
-      $missing[]=['speaker_id'=>$sid,'speaker_name'=>$sname,'needs_evaluation'=>!$evalDone,'needs_quiz'=>$requiresQuiz && !$quizDone,'day_date'=>$dayDate];
+      $missing[]=['speaker_id'=>$sid,'speaker_name'=>$sname,'needs_evaluation'=>!$evalDone,'needs_quiz'=>$requiresQuiz && !$quizPassed,'day_date'=>$dayDate];
     }
   }
   // Deduplicate titles while preserving order

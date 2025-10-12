@@ -192,7 +192,7 @@ $programsLink = 'programs.php'.($dayId > 0 ? ('?day_id='.(int)$dayId) : '');
       <?php endif; ?>
     </div>
     <div style="flex:1;min-width:0">
-      <h1><?= e($s['title'] ?: 'Session') ?></h1>
+  <h1><?= e(($s['topic'] ?? '') !== '' ? $s['topic'] : ($s['title'] ?: 'Session')) ?></h1>
       <h2><?= e($s['name']) ?></h2>
       <div class="session-meta">
         <div class="badge-room" title="Function Room"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 21V8a2 2 0 012-2h3l2-3h4l2 3h3a2 2 0 012 2v13"/><path d="M16 21V11H8v10"/></svg><?= e($s['room_name'] ?: 'Room TBA') ?></div>

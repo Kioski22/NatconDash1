@@ -376,6 +376,9 @@ function fmt_time($t){ if (!$t) return ''; $dt=@date_create($t); return $dt?date
     </div>
     <div style="flex:1">
       <h2><?= e($s['name']) ?></h2>
+      <?php if (!empty($s['topic'])): ?>
+        <p class="mb-0 fw-semibold"><?= e($s['topic']) ?></p>
+      <?php endif; ?>
       <p class="mb-0"><?= e($s['title']) ?></p>
       <div class="mt-2 small text-muted"><?= e($s['room_name']?:'Function Room') ?> — <?= e($s['day_label']?:('Day '.((int)$s['day_number']))) ?> — <?= fmt_time($s['start_time']) ?></div>
     </div>

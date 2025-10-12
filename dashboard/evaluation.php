@@ -6,8 +6,8 @@ if (isset($conn) && $conn instanceof mysqli) $db = $conn; elseif (isset($mysqli)
 if (!function_exists('e')) { function e($s){ return htmlspecialchars((string)$s, ENT_QUOTES|ENT_SUBSTITUTE,'UTF-8'); } }
 $user_id = isset($_SESSION['user_id']) ? (int)$_SESSION['user_id'] : 0; if ($user_id<=0){ header('Location: ../Credentials/login.php'); exit; }
 $speaker_id = isset($_GET['speaker_id']) ? (int)$_GET['speaker_id'] : 0; if ($speaker_id<=0){ http_response_code(400); echo 'Invalid speaker.'; exit; }
-$spk = ['name'=>'Speaker','title'=>'','program_type'=>''];
-if ($st=$db->prepare('SELECT name,title,program_type FROM speakers WHERE id=? LIMIT 1')) { $st->bind_param('i',$speaker_id); $st->execute(); $st->bind_result($spk['name'],$spk['title'],$spk['program_type']); $st->fetch(); $st->close(); }
+$spk = ['name'=>'Speaker','title'=>'','topic'=>'','program_type'=>''];
+if ($st=$db->prepare('SELECT name,title,topic,program_type FROM speakers WHERE id=? LIMIT 1')) { $st->bind_param('i',$speaker_id); $st->execute(); $st->bind_result($spk['name'],$spk['title'],$spk['topic'],$spk['program_type']); $st->fetch(); $st->close(); }
 if (empty($_SESSION['csrf_token'])) $_SESSION['csrf_token'] = bin2hex(random_bytes(16));
 $csrf = $_SESSION['csrf_token'];
 ?>
@@ -93,7 +93,7 @@ $csrf = $_SESSION['csrf_token'];
   <?php $isSub = (isset($_GET['sub']) && $_GET['sub']=='1') || strcasecmp($spk['program_type'],'sub')===0; ?>
   <a class="back-link small" href="<?= $isSub ? 'sub_speaker_form.php' : 'speaker_form.php' ?>?id=<?= (int)$speaker_id ?>">&lt; Back to session</a>
       <h1 class="mt-2 mb-0">Speaker Evaluation</h1>
-      <p class="mb-0"><?= e($spk['name']) ?><?= $spk['title'] ? ' — ' . e($spk['title']) : '' ?></p>
+  <p class="mb-0"><?= e($spk['name']) ?><?= $spk['topic'] ? ' — ' . e($spk['topic']) : ($spk['title'] ? ' — ' . e($spk['title']) : '') ?></p>
     </div>
   </div>
 

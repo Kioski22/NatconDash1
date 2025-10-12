@@ -137,7 +137,7 @@ $dayId = isset($_GET['day_id']) ? (int)$_GET['day_id'] : 0; if ($dayId <= 0) { h
             timeTxt = st + (et ? ' - ' + et.substring(0,5) : '');
         }
         item.innerHTML = '<div class="d-flex justify-content-between align-items-start mb-1"><strong>' + esc(sp.name || '') + '</strong></div>'
-          + (sp.title? '<div class="speaker-title mb-1">'+esc(sp.title)+'</div>' : '')
+          + (sp.topic? '<div class="speaker-title mb-1">'+esc(sp.topic)+'</div>' : (sp.title? '<div class="speaker-title mb-1">'+esc(sp.title)+'</div>' : ''))
           + '<div class="speaker-time">'+esc(timeTxt)+'</div>';
         item.addEventListener('click', ()=> { window.location = 'speaker_form.php?id=' + encodeURIComponent(sp.id); });
         col.appendChild(item); row.appendChild(col);

@@ -62,12 +62,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       $speaker_id = isset($_POST['speaker_id']) && is_numeric($_POST['speaker_id']) ? (int)$_POST['speaker_id'] : 0;
       $questions_json = trim($_POST['questions'] ?? '[]');
       $options_json   = trim($_POST['options'] ?? '[]');
-      $answers_json   = trim($_POST['answers'] ?? '[]');
+  $answers_json   = trim($_POST['answers'] ?? '[]');
 
       if ($speaker_id <= 0) $errors[] = 'Select a speaker.';
       $questions = json_decode($questions_json, true);
       $options   = json_decode($options_json, true);
-      $answers   = json_decode($answers_json, true);
+  $answers   = json_decode($answers_json, true);
 
       if (!is_array($questions) || empty($questions)) $errors[] = 'Add at least one question.';
       if (!is_array($options)) $errors[] = 'Options invalid.';
@@ -100,9 +100,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
           foreach ($opt as $optTxt) {
             if (trim((string)$optTxt) === '') { $errors[] = "Question ".($i+1).": option text cannot be empty."; break 2; }
           }
-          if (!isset($answers[$i]) || !is_int($answers[$i]) || $answers[$i] < 0 || $answers[$i] >= count($opt)) {
-            $errors[] = "Question ".($i+1).": select a valid correct option.";
-            break;
+          // Multiple-correct support: answers[i] can be int or array of ints (>=1)
+          if (!array_key_exists($i, $answers)) { $errors[] = "Question ".($i+1).": select at least one correct option."; break; }
+          $ansVal = $answers[$i];
+          $ansArr = [];
+          if (is_int($ansVal)) { $ansArr = [$ansVal]; }
+          elseif (is_array($ansVal)) { $ansArr = $ansVal; }
+          else { $errors[] = "Question ".($i+1).": invalid correct answer format."; break; }
+          if (count($ansArr) < 1) { $errors[] = "Question ".($i+1).": select at least one correct option."; break; }
+          // validate each index and uniqueness
+          $seen = [];
+          foreach ($ansArr as $ai) {
+            if (!is_int($ai) || $ai < 0 || $ai >= count($opt)) { $errors[] = "Question ".($i+1).": invalid correct option index."; break 2; }
+            if (isset($seen[$ai])) { $errors[] = "Question ".($i+1).": duplicate correct option index."; break 2; }
+            $seen[$ai] = true;
           }
         }
       }
@@ -129,9 +140,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if ($action === 'add') {
           $stmt = $db->prepare("INSERT INTO quizzes (speaker_id, room_id, day_id, questions, options, answers) VALUES (?, ?, ?, ?, ?, ?)");
           if ($stmt) {
+            // Normalize answers to array-of-arrays (for MCQ) or null for paragraph
+            $normAns = [];
+            for ($i=0;$i<count($questions);$i++) {
+              $opt = $options[$i] ?? [];
+              if (is_array($opt) && count($opt) === 0) { $normAns[$i] = null; continue; }
+              $av = $answers[$i] ?? [];
+              if (is_int($av)) $av = [$av];
+              if (!is_array($av)) $av = [];
+              $normAns[$i] = array_values(array_unique(array_map('intval', $av)));
+            }
             $qj = json_encode($questions, JSON_UNESCAPED_UNICODE);
             $oj = json_encode($options, JSON_UNESCAPED_UNICODE);
-            $aj = json_encode($answers, JSON_UNESCAPED_UNICODE);
+            $aj = json_encode($normAns, JSON_UNESCAPED_UNICODE);
             $stmt->bind_param('iiisss', $speaker_id, $room_id, $day_id, $qj, $oj, $aj);
             if ($stmt->execute()) $success = 'Quiz created.';
             else $errors[] = ($db->errno == 1062) ? 'A quiz already exists for this speaker.' : ('Insert failed: '.$stmt->error);
@@ -145,9 +166,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
           if (empty($errors)) {
             $stmt = $db->prepare("UPDATE quizzes SET speaker_id=?, room_id=?, day_id=?, questions=?, options=?, answers=? WHERE id=? LIMIT 1");
             if ($stmt) {
+              $normAns = [];
+              for ($i=0;$i<count($questions);$i++) {
+                $opt = $options[$i] ?? [];
+                if (is_array($opt) && count($opt) === 0) { $normAns[$i] = null; continue; }
+                $av = $answers[$i] ?? [];
+                if (is_int($av)) $av = [$av];
+                if (!is_array($av)) $av = [];
+                $normAns[$i] = array_values(array_unique(array_map('intval', $av)));
+              }
               $qj = json_encode($questions, JSON_UNESCAPED_UNICODE);
               $oj = json_encode($options, JSON_UNESCAPED_UNICODE);
-              $aj = json_encode($answers, JSON_UNESCAPED_UNICODE);
+              $aj = json_encode($normAns, JSON_UNESCAPED_UNICODE);
               $stmt->bind_param('iiisssi', $speaker_id, $room_id, $day_id, $qj, $oj, $aj, $id);
               if ($stmt->execute()) $success = 'Quiz updated.';
               else $errors[] = 'Update failed: '.$stmt->error;
@@ -205,8 +235,19 @@ if (isset($_GET['edit']) && is_numeric($_GET['edit'])) {
 }
 
 // list quizzes
+$perPage = 10;
+$page = isset($_GET['page']) ? max(1, (int)$_GET['page']) : 1;
+$totalQuizzes = 0;
+if ($cnt = $db->query("SELECT COUNT(*) AS cnt FROM quizzes")) {
+  if ($row = $cnt->fetch_assoc()) $totalQuizzes = (int)$row['cnt'];
+  $cnt->close();
+}
+$totalPages = max(1, (int)ceil($totalQuizzes / $perPage));
+if ($page > $totalPages) $page = $totalPages;
+$offset = ($page - 1) * $perPage;
+
 $quizzes = [];
-$qr = $db->query("
+$sqlList = "
   SELECT q.*, s.name AS speaker_name, s.title AS speaker_title, s.program_type,
          fr.name AS room_name, fd.label AS day_label
   FROM quizzes q
@@ -214,8 +255,14 @@ $qr = $db->query("
   LEFT JOIN function_rooms fr ON fr.id = q.room_id
   LEFT JOIN function_room_days fd ON fd.id = q.day_id
   ORDER BY q.created_at DESC, q.id DESC
-");
-if ($qr) while ($row = $qr->fetch_assoc()) $quizzes[] = $row;
+  LIMIT $offset, $perPage
+";
+if ($qr = $db->query($sqlList)) {
+  while ($row = $qr->fetch_assoc()) $quizzes[] = $row;
+  $qr->close();
+}
+$showingStart = $totalQuizzes > 0 ? $offset + 1 : 0;
+$showingEnd = min($offset + count($quizzes), $totalQuizzes);
 
 function pretty_count($jsonStr) {
   $a = json_decode($jsonStr, true);
@@ -530,8 +577,27 @@ function pretty_count($jsonStr) {
     .table-container {
       background: white;
       border-radius: var(--border-radius);
-      overflow: hidden;
       box-shadow: var(--card-shadow);
+      position: relative;
+    }
+
+    .quiz-table-wrapper {
+      overflow-x: auto;
+      max-height: 580px;
+      border-radius: inherit;
+    }
+
+    .quiz-table-wrapper::-webkit-scrollbar {
+      height: 8px;
+    }
+
+    .quiz-table-wrapper::-webkit-scrollbar-thumb {
+      background: rgba(37,99,235,0.35);
+      border-radius: 999px;
+    }
+
+    .quiz-table-wrapper table {
+      min-width: 900px;
     }
 
     .table {
@@ -553,13 +619,72 @@ function pretty_count($jsonStr) {
 
     .table tbody tr:hover {
       background: rgba(37,99,235,0.05);
-      transform: scale(1.01);
+      transform: translateY(-1px);
     }
 
     .table tbody td {
       text-align: center;
       padding: 1rem;
       vertical-align: middle;
+    }
+
+    .actions-header {
+      position: sticky;
+      right: 0;
+      z-index: 3;
+      box-shadow: -6px 0 12px rgba(15, 23, 42, 0.15);
+    }
+
+    .actions-cell {
+      position: sticky;
+      right: 0;
+      background: rgba(255,255,255,0.98);
+      min-width: 170px;
+      z-index: 2;
+      box-shadow: -6px 0 12px rgba(15, 23, 42, 0.08);
+    }
+
+    .table tbody tr:hover .actions-cell {
+      background: rgba(248, 250, 252, 0.98);
+    }
+
+    .pagination-container {
+      margin-top: 1.5rem;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 1rem;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .pagination-summary {
+      font-size: 0.9rem;
+      color: #475569;
+    }
+
+    .pagination .page-link {
+      border-radius: 999px;
+      border: none;
+      color: var(--primary);
+      font-weight: 600;
+      padding: 0.45rem 0.85rem;
+      transition: all 0.2s ease;
+    }
+
+    .pagination .page-link:hover {
+      background: rgba(37,99,235,0.12);
+      color: var(--primary-dark);
+    }
+
+    .pagination .page-item.active .page-link {
+      background: linear-gradient(135deg, var(--primary), var(--primary-dark));
+      color: #fff;
+      box-shadow: 0 6px 16px rgba(37,99,235,0.25);
+    }
+
+    .pagination .page-item.disabled .page-link {
+      color: #cbd5f5;
+      background: rgba(148, 163, 184, 0.15);
     }
 
     /* Badges */
@@ -710,6 +835,7 @@ function pretty_count($jsonStr) {
             </div>
           <?php else: ?>
             <div class="table-container">
+              <div class="quiz-table-wrapper">
               <table class="table table-hover align-middle">
                 <thead>
                   <tr>
@@ -719,7 +845,7 @@ function pretty_count($jsonStr) {
                     <th><i class="bi bi-door-open me-1"></i>Room</th>
                     <th><i class="bi bi-question-circle me-1"></i>Questions</th>
                     <th><i class="bi bi-clock me-1"></i>Created</th>
-                    <th><i class="bi bi-gear me-1"></i>Actions</th>
+                    <th class="actions-header"><i class="bi bi-gear me-1"></i>Actions</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -741,7 +867,7 @@ function pretty_count($jsonStr) {
                       <td><?= e($q['room_name'] ?: '-') ?></td>
                       <td><span class="badge badge-soft"><?= pretty_count($q['questions']) ?></span></td>
                       <td><small><?= date('M j, Y', strtotime($q['created_at'])) ?></small></td>
-                      <td style="min-width:140px;">
+                      <td class="actions-cell">
                         <div class="d-flex flex-column flex-md-row flex-wrap gap-2 justify-content-center align-items-stretch">
                           <a class="btn btn-sm btn-outline-primary d-inline-flex align-items-center gap-1 px-2 fw-semibold" href="admin_quiz_manage.php?edit=<?= (int)$q['id'] ?>" title="Edit Quiz">
                             <i class="bi bi-pencil"></i><span>Edit</span>
@@ -772,6 +898,56 @@ function pretty_count($jsonStr) {
                   <?php endforeach; ?>
                 </tbody>
               </table>
+              </div>
+            </div>
+            <div class="pagination-container">
+              <div class="pagination-summary">
+                <?php if ($totalQuizzes > 0): ?>
+                  Showing <?= number_format($showingStart) ?>–<?= number_format($showingEnd) ?> of <?= number_format($totalQuizzes) ?> quizzes
+                <?php else: ?>
+                  No quizzes found
+                <?php endif; ?>
+              </div>
+              <?php if ($totalPages > 1): ?>
+                <?php
+                  $queryParams = $_GET;
+                  unset($queryParams['page']);
+                  $queryPrefix = $queryParams ? http_build_query($queryParams) . '&' : '';
+                  $prevPage = max(1, $page - 1);
+                  $nextPage = min($totalPages, $page + 1);
+                  $maxLinks = 5;
+                  $startPage = max(1, $page - 2);
+                  $endPage = min($totalPages, $startPage + $maxLinks - 1);
+                  $startPage = max(1, $endPage - $maxLinks + 1);
+                ?>
+                <nav aria-label="Quiz pagination">
+                  <ul class="pagination mb-0">
+                    <li class="page-item <?= $page === 1 ? 'disabled' : '' ?>">
+                      <a class="page-link" href="admin_quiz_manage.php?<?= $queryPrefix ?>page=<?= $prevPage ?>" aria-label="Previous" <?= $page === 1 ? 'tabindex="-1" aria-disabled="true"' : '' ?>>
+                        <span aria-hidden="true">&laquo;</span>
+                      </a>
+                    </li>
+                    <?php if ($startPage > 1): ?>
+                      <li class="page-item"><a class="page-link" href="admin_quiz_manage.php?<?= $queryPrefix ?>page=1">1</a></li>
+                      <?php if ($startPage > 2): ?><li class="page-item disabled"><span class="page-link">…</span></li><?php endif; ?>
+                    <?php endif; ?>
+                    <?php for ($p = $startPage; $p <= $endPage; $p++): ?>
+                      <li class="page-item <?= $p === $page ? 'active' : '' ?>">
+                        <a class="page-link" href="admin_quiz_manage.php?<?= $queryPrefix ?>page=<?= $p ?>"><?= $p ?></a>
+                      </li>
+                    <?php endfor; ?>
+                    <?php if ($endPage < $totalPages): ?>
+                      <?php if ($endPage < $totalPages - 1): ?><li class="page-item disabled"><span class="page-link">…</span></li><?php endif; ?>
+                      <li class="page-item"><a class="page-link" href="admin_quiz_manage.php?<?= $queryPrefix ?>page=<?= $totalPages ?>"><?= $totalPages ?></a></li>
+                    <?php endif; ?>
+                    <li class="page-item <?= $page === $totalPages ? 'disabled' : '' ?>">
+                      <a class="page-link" href="admin_quiz_manage.php?<?= $queryPrefix ?>page=<?= $nextPage ?>" aria-label="Next" <?= $page === $totalPages ? 'tabindex="-1" aria-disabled="true"' : '' ?>>
+                        <span aria-hidden="true">&raquo;</span>
+                      </a>
+                    </li>
+                  </ul>
+                </nav>
+              <?php endif; ?>
             </div>
           <?php endif; ?>
         </div>
@@ -863,7 +1039,7 @@ function pretty_count($jsonStr) {
               <strong>Pro Tips:</strong>
             </div>
             <div class="small text-muted mt-2">
-              • Click radio buttons to mark correct answers<br>
+              • Click the checkboxes to mark one or more correct answers<br>
               • Use "Paragraph" type for open-ended questions<br>
               • Drag questions to reorder them
             </div>
@@ -902,7 +1078,7 @@ function pretty_count($jsonStr) {
   if (initial.mode === 'add' && (!Array.isArray(initial.questions) || initial.questions.length === 0)) {
     initial.questions = [''];
     initial.options = [['Option 1','Option 2']];
-    initial.answers = [0];
+    initial.answers = [[]];
   }
 
   const builder = document.getElementById('quizBuilder');
@@ -986,8 +1162,9 @@ function pretty_count($jsonStr) {
 
     const optWrap = card.querySelector('.opt-wrap');
     if (!isPara) {
+      const corrSet = new Set(Array.isArray(correctIndex) ? correctIndex : (Number.isInteger(correctIndex) ? [correctIndex] : []));
       (opts || []).forEach((opt, oidx) => {
-        optWrap.appendChild(makeOptionRow(idx, oidx, opt, oidx === correctIndex));
+        optWrap.appendChild(makeOptionRow(idx, oidx, opt, corrSet.has(oidx)));
       });
     }
 
@@ -1001,7 +1178,7 @@ function pretty_count($jsonStr) {
     row.dataset.o = oIdx;
     row.innerHTML = `
       <div class="form-check">
-        <input class="form-check-input" type="radio" name="correct_${qIdx}" ${checked ? 'checked' : ''} title="Mark as correct answer">
+        <input class="form-check-input" type="checkbox" data-role="correct" ${checked ? 'checked' : ''} title="Mark as correct answer">
         <label class="form-check-label small text-muted">Correct</label>
       </div>
       <input type="text" class="form-control" placeholder="Enter option ${oIdx+1}..." value="${escapeHtml(value || '')}">
@@ -1081,7 +1258,8 @@ function pretty_count($jsonStr) {
           initial.questions.splice(qIdx+1, 0, initial.questions[qIdx]);
           const isPara = isParagraph(qIdx);
           initial.options.splice(qIdx+1, 0, isPara ? [] : [...(initial.options[qIdx] || [])]);
-          initial.answers.splice(qIdx+1, 0, isPara ? null : (Number.isInteger(initial.answers[qIdx]) ? initial.answers[qIdx] : 0));
+          const a = initial.answers[qIdx];
+          initial.answers.splice(qIdx+1, 0, isPara ? null : (Array.isArray(a) ? [...a] : (Number.isInteger(a) ? [a] : [])));
           render();
         } else if (action === 'move-up' && qIdx > 0) {
           swapQuestions(qIdx, qIdx-1); render();
@@ -1103,9 +1281,9 @@ function pretty_count($jsonStr) {
           if (action === 'opt-delete') {
             if ((initial.options[qIdx] || []).length <= 2) { showToast('A question needs at least 2 options.'); return; }
             initial.options[qIdx].splice(oIdx, 1);
-            const ci = initial.answers[qIdx];
-            if (ci === oIdx) initial.answers[qIdx] = 0;
-            else if (ci > oIdx) initial.answers[qIdx] = ci - 1;
+            let arr = Array.isArray(initial.answers[qIdx]) ? initial.answers[qIdx] : (Number.isInteger(initial.answers[qIdx]) ? [initial.answers[qIdx]] : []);
+            arr = arr.filter(v => v !== oIdx).map(v => v > oIdx ? v - 1 : v);
+            initial.answers[qIdx] = arr;
             render();
           } else if (action === 'opt-move-up' && oIdx > 0) {
             swapOptions(qIdx, oIdx, oIdx-1); render();
@@ -1119,10 +1297,15 @@ function pretty_count($jsonStr) {
           text.addEventListener('input', () => {
             initial.options[qIdx][oIdx] = text.value;
           });
-          const radio = row.querySelector('input[type="radio"]');
-          radio.addEventListener('change', () => {
-            initial.answers[qIdx] = oIdx;
-            render();
+          const cb = row.querySelector('input[type="checkbox"][data-role="correct"]');
+          cb.addEventListener('change', () => {
+            let arr = Array.isArray(initial.answers[qIdx]) ? initial.answers[qIdx] : (Number.isInteger(initial.answers[qIdx]) ? [initial.answers[qIdx]] : []);
+            if (cb.checked) {
+              if (!arr.includes(oIdx)) arr.push(oIdx);
+            } else {
+              arr = arr.filter(v => v !== oIdx);
+            }
+            initial.answers[qIdx] = arr;
           });
         });
       }
@@ -1165,11 +1348,16 @@ function pretty_count($jsonStr) {
       if (opts.length === 0) {
         A[i] = null;
       } else if (opts.length >= 2) {
-        if (!Number.isInteger(A[i]) || A[i] < 0 || A[i] >= opts.length) {
-          e.preventDefault(); showToast(`Select a correct answer for question ${i+1}.`); return;
-        }
+        if (Number.isInteger(A[i])) A[i] = [A[i]];
+        if (!Array.isArray(A[i]) || A[i].length === 0) { e.preventDefault(); showToast(`Select at least one correct answer for question ${i+1}.`); return; }
         for (let j=0;j<opts.length;j++){
           if (!opts[j] || String(opts[j]).trim() === '') { e.preventDefault(); showToast(`Question ${i+1} option ${j+1} cannot be empty.`); return; }
+        }
+        const seen = new Set();
+        for (const v of A[i]) {
+          if (!Number.isInteger(v) || v < 0 || v >= opts.length) { e.preventDefault(); showToast(`Question ${i+1}: invalid correct option.`); return; }
+          if (seen.has(v)) { e.preventDefault(); showToast(`Question ${i+1}: duplicate correct option.`); return; }
+          seen.add(v);
         }
       } else {
         e.preventDefault(); showToast(`Question ${i+1}: add 2+ options or switch to Paragraph.`); return;
@@ -1183,13 +1371,14 @@ function pretty_count($jsonStr) {
   // Initial render
   if (!Array.isArray(initial.questions)) initial.questions = [];
   if (!Array.isArray(initial.options)) initial.options = initial.questions.map(()=>['Option 1','Option 2']);
-  if (!Array.isArray(initial.answers)) initial.answers = initial.questions.map(()=>0);
+  if (!Array.isArray(initial.answers)) initial.answers = initial.questions.map(()=>[]);
   const len = initial.questions.length;
   initial.options.length = len;
   initial.answers.length = len;
   for (let i=0;i<len;i++){
     if (!Array.isArray(initial.options[i])) initial.options[i] = ['Option 1','Option 2'];
-    if (!Number.isInteger(initial.answers[i])) initial.answers[i] = 0;
+    if (Number.isInteger(initial.answers[i])) initial.answers[i] = [initial.answers[i]];
+    if (!Array.isArray(initial.answers[i])) initial.answers[i] = [];
   }
   render();
 

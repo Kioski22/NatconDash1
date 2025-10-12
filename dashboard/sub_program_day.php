@@ -229,7 +229,7 @@ $dayId = isset($_GET['day_id']) ? (int)$_GET['day_id'] : 0; if ($dayId <= 0) { h
               let timeTxt='Time TBA';
               if(sp.start_time||sp.end_time){ const st=(sp.start_time||'').substring(0,5); const et=(sp.end_time||''); timeTxt=st+(et?' - '+et.substring(0,5):''); }
               card.innerHTML='<strong class="d-block mb-1">'+esc(sp.name||'')+'</strong>'
-                +(sp.title?'<div class="speaker-title mb-1">'+esc(sp.title)+'</div>':'')
+                +(sp.topic?'<div class="speaker-title mb-1">'+esc(sp.topic)+'</div>':(sp.title?'<div class="speaker-title mb-1">'+esc(sp.title)+'</div>':''))
                 +'<div class="speaker-time mb-1">'+esc(timeTxt)+'</div>'
                 +'<div class="small opacity-75">Room: '+esc(sp.room_name||'')+'</div>'
                 +'<div class="small mt-1">Quiz: '+(sp.quiz_submitted?'✅':'—')+' | Eval: '+(sp.evaluated?'✅':'—')+'</div>';

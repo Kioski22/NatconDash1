@@ -23,6 +23,13 @@ else { http_response_code(500); echo json_encode(['ok'=>false,'error'=>'DB unava
 $user_id = isset($_SESSION['user_id']) ? (int)$_SESSION['user_id'] : 0;
 if ($user_id <= 0) { http_response_code(401); echo json_encode(['ok'=>false,'error'=>'Login required']); exit; }
 
+// Settings helper
+function get_setting(mysqli $db, string $key, $default = '') {
+    $chk = $db->query("SHOW TABLES LIKE 'admin_settings'"); if(!$chk) return $default; $has=$chk->num_rows>0; $chk->close(); if(!$has) return $default;
+    if($st=$db->prepare("SELECT setting_value FROM admin_settings WHERE setting_key=? LIMIT 1")){ $st->bind_param('s',$key); $st->execute(); $st->bind_result($val); if($st->fetch()){ $st->close(); return $val; } $st->close(); }
+    return $default;
+}
+
 // Auto-migrate storage table (generated certificates)
 @$db->query("CREATE TABLE IF NOT EXISTS sub_department_certificates (
   id INT AUTO_INCREMENT PRIMARY KEY,
@@ -57,6 +64,10 @@ function compute_progress(mysqli $db, int $dept_id, int $user_id): array {
     $totalSpeakers = 0;
     $evalCompleted = 0; $evalRemaining = [];
     $quizTotal = 0; $quizCompleted = 0; $quizRemaining = [];
+    // Load sub program rules
+    $subMinScore    = (int)(get_setting($db,'sub_cert_min_score', get_setting($db,'cert_min_score','0')) ?: 0);
+    $requireQuiz    = (get_setting($db,'sub_cert_require_quiz', get_setting($db,'cert_require_quiz','1')) === '1');
+    $requireEval    = (get_setting($db,'sub_cert_require_eval', get_setting($db,'cert_require_eval','0')) === '1');
     // Detect existence of quiz_questions table (legacy fallback)
     $hasQuizQuestions = false;
     if ($res = $db->query("SHOW TABLES LIKE 'quiz_questions'")) { $hasQuizQuestions = $res->num_rows > 0; $res->close(); }
@@ -84,19 +95,33 @@ function compute_progress(mysqli $db, int $dept_id, int $user_id): array {
             }
             if ($hasQuiz) {
                 $quizTotal++;
+                // If quiz is required, we must check PASS vs threshold; else presence counts as done when responded
+                $userHasResponse=false; $userScore=null;
                 if ($quizId > 0) {
-                    if ($qr = $db->prepare("SELECT 1 FROM quiz_responses WHERE quiz_id=? AND user_id=? LIMIT 1")) { $qr->bind_param('ii',$quizId,$user_id); $qr->execute(); $qr->bind_result($d); if($qr->fetch()) $userQuizDone=true; $qr->close(); }
+                    if ($qr = $db->prepare("SELECT score FROM quiz_responses WHERE quiz_id=? AND user_id=? LIMIT 1")) { $qr->bind_param('ii',$quizId,$user_id); $qr->execute(); $qr->bind_result($sc); if($qr->fetch()){ $userHasResponse=true; $userScore=(int)$sc; } $qr->close(); }
                 }
-                if (!$userQuizDone) { // speaker_id keyed responses fallback
-                    if ($qr2 = $db->prepare("SELECT 1 FROM quiz_responses WHERE speaker_id=? AND user_id=? LIMIT 1")) { $qr2->bind_param('ii',$spId,$user_id); $qr2->execute(); $qr2->bind_result($d); if($qr2->fetch()) $userQuizDone=true; $qr2->close(); }
+                if (!$userHasResponse) {
+                    if ($qr2 = $db->prepare("SELECT score FROM quiz_responses WHERE speaker_id=? AND user_id=? LIMIT 1")) { $qr2->bind_param('ii',$spId,$user_id); $qr2->execute(); $qr2->bind_result($sc); if($qr2->fetch()){ $userHasResponse=true; $userScore=(int)$sc; } $qr2->close(); }
                 }
+                $passed=false; if($userHasResponse){
+                    // Determine total gradable questions
+                    $totalGradable=0; $ansJson=null; $qJson=null;
+                    if($quizId>0){ if($qq=$db->prepare('SELECT answers,questions FROM quizzes WHERE id=? LIMIT 1')){ $qq->bind_param('i',$quizId); $qq->execute(); $qq->bind_result($ansJson,$qJson); if($qq->fetch()){} $qq->close(); } }
+                    if($ansJson){ $arr=json_decode((string)$ansJson,true); if(is_array($arr)) $totalGradable=count($arr); }
+                    if($totalGradable<=0 && $qJson){ $arr=json_decode((string)$qJson,true); if(is_array($arr)) $totalGradable=count($arr); }
+                    if($totalGradable>0){ $pct = ($userScore*100.0)/$totalGradable; $passed = ((int)round($pct) >= (int)$subMinScore); }
+                }
+                // Count as completed when: required -> must pass; optional -> must at least respond
+                $userQuizDone = $requireQuiz ? $passed : $userHasResponse;
                 if ($userQuizDone) $quizCompleted++; else $quizRemaining[] = $spId;
             }
         }
         $st->close();
     }
-    // Completed condition: all evaluations and all required quizzes
-    $complete = ($totalSpeakers>0 && $evalCompleted === $totalSpeakers && $quizCompleted === $quizTotal);
+    // Completed condition: if eval required -> all evaluations; if quiz required -> all quizzes passed
+    $evalOk = !$requireEval ? true : ($evalCompleted === $totalSpeakers);
+    $quizOk = !$requireQuiz ? true : ($quizCompleted === $quizTotal);
+    $complete = ($totalSpeakers>0 && $evalOk && $quizOk);
     return [
         'total'=>$totalSpeakers,
         'completed'=>$evalCompleted, // backward compatibility (evaluations)
@@ -134,6 +159,10 @@ if ($method === 'GET') {
     [$dept_id,$dept,$err] = resolve_department_id($db,$input);
     if ($err) { http_response_code(400); echo json_encode(['ok'=>false,'error'=>$err]); exit; }
     $progress = compute_progress($db,$dept_id,$user_id);
+
+    // Include current rule flags in status for transparency
+    $subRequireEval = (get_setting($db,'sub_cert_require_eval', get_setting($db,'cert_require_eval','0')) === '1');
+    $subRequireQuiz = (get_setting($db,'sub_cert_require_quiz', get_setting($db,'cert_require_quiz','1')) === '1');
 
     // Existing completion certificate check
     $existing = null;
@@ -181,7 +210,8 @@ if ($method === 'GET') {
                 'attendance'=>[
                     'template_assigned'=> $attTemplate ? true:false,
                     'certificate'=>$attExisting
-                ]
+                ],
+                'rules'=>[ 'require_eval'=>$subRequireEval, 'require_quiz'=>$subRequireQuiz ]
         ]);
     exit;
 }
@@ -193,6 +223,16 @@ $data = json_decode($raw,true) ?: [];
 if ($err) { http_response_code(400); echo json_encode(['ok'=>false,'error'=>$err]); exit; }
 
 $progress = compute_progress($db,$dept_id,$user_id);
+
+// Global gate (master enable or scheduled activation)
+$certEnabled = get_setting($db,'cert_generation_enabled','0');
+$autoEnableDate = trim((string)get_setting($db,'cert_auto_enable_date',''));
+$nowTs=time(); $canByDate=true; if($autoEnableDate!==''){ $ts=strtotime($autoEnableDate); if($ts!==false){ $canByDate = ($nowTs >= $ts); }}
+if(!($certEnabled==='1' || $canByDate)){
+    http_response_code(403);
+    echo json_encode(['ok'=>false,'error'=>'Certificate generation is disabled or not yet open','available_after'=>$autoEnableDate ?: null,'progress'=>$progress]);
+    exit;
+}
 
 // Attendance table ensure (used if completion not yet ready or explicitly requested)
 @ $db->query("CREATE TABLE IF NOT EXISTS sub_department_attendance_certificates (

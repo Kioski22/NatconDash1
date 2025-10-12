@@ -58,7 +58,7 @@ $natconQuestionCount=0; if(table_exists($db,'natcon_eval_questions')){ $r=$db->q
 $natconResponseCount=0; if(table_exists($db,'natcon_eval_responses')){ $r=$db->query("SELECT COUNT(*) FROM natcon_eval_responses"); if($r) $natconResponseCount=(int)$r->fetch_row()[0]; }
 
 // speakers missing quiz & department certificate template
-$speakersMissingQuizCert=[]; $sqlMissing="SELECT s.id,s.name,s.title, s.technical_department_id, COALESCE(td.name,'(No Department)') AS dept_name
+$speakersMissingQuizCert=[]; $sqlMissing="SELECT s.id,s.name,s.title,s.topic, s.technical_department_id, COALESCE(td.name,'(No Department)') AS dept_name
     FROM speakers s
     LEFT JOIN quizzes q ON q.speaker_id=s.id
     LEFT JOIN technical_departments td ON td.id=s.technical_department_id
@@ -919,7 +919,7 @@ $missingQuizCertCount=count($speakersMissingQuizCert);
                                                         <tr>
                                                             <th style="min-width:60px;">ID</th>
                                                             <th>Speaker</th>
-                                                            <th style="min-width:160px;">Title</th>
+                                                            <th style="min-width:160px;">Title / Topic</th>
                                                             <th style="min-width:160px;">Department</th>
                                                             <th>Actions</th>
                                                         </tr>
@@ -929,7 +929,7 @@ $missingQuizCertCount=count($speakersMissingQuizCert);
                                                         <tr>
                                                             <td class="text-muted">#<?= (int)$sp['id'] ?></td>
                                                             <td><?= htmlspecialchars($sp['name'] ?? 'Speaker', ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') ?></td>
-                                                            <td><small><?= htmlspecialchars($sp['title'] ?? '', ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') ?></small></td>
+                                                            <td><small><?= htmlspecialchars(!empty($sp['topic']) ? $sp['topic'] : ($sp['title'] ?? ''), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') ?></small></td>
                                                             <td><span class="badge badge-soft <?= empty($sp['dept_name']) || $sp['dept_name']==='(No Department)' ? 'badge-soft-danger' : '' ?>"><?= htmlspecialchars($sp['dept_name'], ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') ?></span></td>
                                                             <td>
                                                                 <a href="admin_quiz_manage.php?speaker_id=<?= (int)$sp['id'] ?>" class="btn btn-sm btn-outline-primary me-1" title="Create Quiz"><i class="bi bi-ui-checks-grid"></i></a>
