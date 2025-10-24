@@ -1,0 +1,86 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "PHP lint changed files",
+			"type": "shell",
+			"command": "php -l \"c:\\xampp\\htdocs\\NatconDash1\\api\\main_program_certificate.php\"; php -l \"c:\\xampp\\htdocs\\NatconDash1\\api\\main_program_attendance_certificate_email.php\"; php -l \"c:\\xampp\\htdocs\\NatconDash1\\api\\main_program_certificate_email.php\"; php -l \"c:\\xampp\\htdocs\\NatconDash1\\dashboard\\programs.php\"",
+			"problemMatcher": [
+				"$gcc"
+			],
+			"group": "build"
+		},
+		{
+			"label": "PHP lint changed files",
+			"type": "shell",
+			"command": "php -l \"c:\\xampp\\htdocs\\NatconDash1\\dashboard\\programs.php\"",
+			"problemMatcher": [
+				"$gcc"
+			],
+			"group": "build"
+		},
+		{
+			"label": "PHP lint changed files",
+			"type": "shell",
+			"command": "php -l \"c:\\xampp\\htdocs\\NatconDash1\\api\\main_program_attendance_certificate.php\"; php -l \"c:\\xampp\\htdocs\\NatconDash1\\api\\main_program_attendance_certificate_email.php\"; php -l \"c:\\xampp\\htdocs\\NatconDash1\\dashboard\\programs.php\"",
+			"problemMatcher": [
+				"$gcc"
+			],
+			"group": "build"
+		},
+		{
+			"label": "PHP lint quiz_get.php",
+			"type": "shell",
+			"command": "php -l \"c:\\xampp\\htdocs\\NatconDash1\\api\\quiz_get.php\"",
+			"problemMatcher": [
+				"$gcc"
+			],
+			"group": "build"
+		},
+		{
+			"label": "PHP lint certificates_generate.php",
+			"type": "shell",
+			"command": "php -l \"c:\\xampp\\htdocs\\NatconDash1\\api\\certificates_generate.php\"",
+			"problemMatcher": [
+				"$gcc"
+			],
+			"group": "build"
+		},
+		{
+			"label": "PHP lint admin_export_responses.php",
+			"type": "shell",
+			"command": "php -l \"c:\\xampp\\htdocs\\NatconDash1\\admin\\admin_export_responses.php\"",
+			"group": "build"
+		},
+		{
+			"label": "PHP lint admin_export_responses.php (after eval fixes)",
+			"type": "shell",
+			"command": "php -l \"c:\\xampp\\htdocs\\NatconDash1\\admin\\admin_export_responses.php\"",
+			"group": "build"
+		},
+		{
+			"label": "PHP lint signup_closed.php and api_signup.php",
+			"type": "shell",
+			"command": "php -l \"c:\\xampp\\htdocs\\NatconDash1\\Credentials\\signup_closed.php\"; php -l \"c:\\xampp\\htdocs\\NatconDash1\\api\\api_signup.php\"",
+			"group": "build"
+		},
+		{
+			"label": "PHP lint signup_closed.php",
+			"type": "shell",
+			"command": "php -l \"c:\\xampp\\htdocs\\NatconDash1\\Credentials\\signup_closed.php\"",
+			"group": "build"
+		},
+		{
+			"label": "PHP lint sub_program files",
+			"type": "shell",
+			"command": "php -l \"c:\\xampp\\htdocs\\NatconDash1\\dashboard\\sub_program_day.php\"; php -l \"c:\\xampp\\htdocs\\NatconDash1\\api\\sub_department_certificate.php\"",
+			"group": "build"
+		},
+		{
+			"label": "PHP lint admin cert issued",
+			"type": "shell",
+			"command": "php -l \"c:\\xampp\\htdocs\\NatconDash1\\admin\\admin_certificates_issued.php\"; php -l \"c:\\xampp\\htdocs\\NatconDash1\\api\\admin_certificates_list.php\"; php -l \"c:\\xampp\\htdocs\\NatconDash1\\api\\admin_certificate_delete.php\"",
+			"group": "build"
+		}
+	]
+}

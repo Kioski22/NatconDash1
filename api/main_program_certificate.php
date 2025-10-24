@@ -24,6 +24,19 @@ if($_SERVER['REQUEST_METHOD']==='POST'){
 }
 if(isset($_GET['regenerate']) && $_GET['regenerate']=='1') $forceRegen=true;
 
+// Admin settings helper and activation/strict flags
+$getSetting = function(mysqli $db, string $key, $default=null){
+  if(!$stmt=$db->prepare('SELECT setting_value FROM admin_settings WHERE setting_key=? LIMIT 1')) return $default;
+  $stmt->bind_param('s',$key); $stmt->execute(); $stmt->bind_result($val); $out=$default; if($stmt->fetch()){ $out=$val; } $stmt->close(); return $out;
+};
+$certEnabled = ((int)($getSetting($db,'cert_generation_enabled','0') ?? '0') === 1);
+$autoEnableStr = (string)($getSetting($db,'cert_auto_enable_date','') ?? '');
+if(strpos($autoEnableStr,'T')!==false){ $autoEnableStr = str_replace('T',' ', $autoEnableStr); }
+$autoEnableTs = $autoEnableStr !== '' ? @strtotime($autoEnableStr) : null;
+$canGenerateNow = $certEnabled || ($autoEnableTs !== null && time() >= $autoEnableTs);
+// Overall strictness (default strict)
+$enforceStrict = ((int)($getSetting($db,'overall_enforce_strict','1') ?? '1') === 1);
+
 // Compute completion using existing aggregation endpoint logic (inline to avoid extra HTTP)
 function aggregate(mysqli $db, int $user_id): array {
   $speakers=[]; $hasQuizQuestions=false; $user_email='';
@@ -84,7 +97,13 @@ function aggregate(mysqli $db, int $user_id): array {
 }
 
 $progress = aggregate($db,$user_id);
-if(!$progress['complete_relaxed']){ http_response_code(403); echo json_encode(['ok'=>false,'error'=>'Main Program incomplete','progress'=>$progress,'missing'=>$progress['missing']]); exit; }
+// Disallow if no configured main program sessions
+if(($progress['total'] ?? 0) <= 0){ http_response_code(403); echo json_encode(['ok'=>false,'error'=>'Main Program not configured yet']); exit; }
+// Enforce activation window
+if(!$canGenerateNow){ http_response_code(403); echo json_encode(['ok'=>false,'error'=>'Certificate generation is not yet enabled','activation_at'=>$autoEnableStr]); exit; }
+// Enforce completion policy (strict vs relaxed)
+if($enforceStrict){ if(empty($progress['complete'])){ http_response_code(403); echo json_encode(['ok'=>false,'error'=>'Main Program incomplete (strict policy)','progress'=>$progress,'missing'=>$progress['missing']]); exit; } }
+else { if(empty($progress['complete_relaxed'])){ http_response_code(403); echo json_encode(['ok'=>false,'error'=>'Main Program incomplete','progress'=>$progress,'missing'=>$progress['missing']]); exit; } }
 
 // Load template first (to compare update time)
 $tpl=null; if($st=$db->prepare("SELECT * FROM certificates WHERE LOWER(type)='main_program_overall' ORDER BY updated_at DESC,id DESC LIMIT 1")){ $st->execute(); $r=$st->get_result(); $tpl=$r->fetch_assoc(); $st->close(); }

@@ -1,6 +1,7 @@
 <?php
-// API endpoint for Sub Program Day speakers by room
+// API endpoint for Sub Program Day speakers by room (includes per-user completion flags)
 header('Content-Type: application/json');
+session_start();
 require_once __DIR__ . '/../db.php';
 if (isset($conn) && $conn instanceof mysqli) { $db = $conn; } elseif (isset($mysqli) && $mysqli instanceof mysqli) { $db = $mysqli; } else { http_response_code(500); echo json_encode(['error'=>'DB unavailable']); exit; }
 
@@ -23,6 +24,91 @@ if ($st = $db->prepare($sql)) {
   $st->bind_param('i',$dayId); $st->execute(); $res=$st->get_result();
   while($row=$res->fetch_assoc()) { $speakers[]=$row; }
   $st->close();
+}
+
+// Enrich with per-user completion status if logged in
+$userId = isset($_SESSION['user_id']) ? (int)$_SESSION['user_id'] : 0;
+$userEmail = trim((string)($_SESSION['user_email'] ?? $_SESSION['email'] ?? ''));
+if (!empty($speakers) && ($userId > 0 || $userEmail !== '')) {
+  $speakerIds = array_values(array_unique(array_map(fn($r)=> (int)$r['id'], $speakers)));
+  if (!empty($speakerIds)) {
+    $in = implode(',', array_fill(0, count($speakerIds), '?'));
+    $typesIn = str_repeat('i', count($speakerIds));
+
+    // Map speaker -> quiz_id
+    $quizMap = [];
+    if ($st = $db->prepare("SELECT speaker_id, id FROM quizzes WHERE speaker_id IN ($in)")) {
+      $st->bind_param($typesIn, ...$speakerIds);
+      $st->execute(); $r = $st->get_result();
+      while ($row = $r->fetch_assoc()) { $quizMap[(int)$row['speaker_id']] = (int)$row['id']; }
+      $st->close();
+    }
+
+    // Quiz submissions
+    $quizDone = [];
+    if (!empty($quizMap)) {
+      $quizIds = array_values($quizMap);
+      $inQuiz = implode(',', array_fill(0, count($quizIds), '?'));
+      $typesQuiz = str_repeat('i', count($quizIds));
+      if ($userId > 0) {
+        if ($st = $db->prepare("SELECT q.speaker_id FROM quiz_responses qr JOIN quizzes q ON q.id = qr.quiz_id WHERE qr.user_id = ? AND qr.quiz_id IN ($inQuiz)")) {
+          $st->bind_param('i'.$typesQuiz, $userId, ...$quizIds);
+          $st->execute(); $r=$st->get_result(); while($row=$r->fetch_assoc()){ $quizDone[(int)$row['speaker_id']]=true; } $st->close();
+        }
+        if ($st = $db->prepare("SELECT speaker_id FROM quiz_responses WHERE user_id = ? AND speaker_id IN ($in)")) {
+          $st->bind_param('i'.$typesIn, $userId, ...$speakerIds);
+          $st->execute(); $r=$st->get_result(); while($row=$r->fetch_assoc()){ $quizDone[(int)$row['speaker_id']]=true; } $st->close();
+        }
+      } elseif ($userEmail !== '') {
+        if ($st = $db->prepare("SELECT q.speaker_id FROM quiz_responses qr JOIN quizzes q ON q.id = qr.quiz_id WHERE (qr.user_email = ? OR qr.email = ?) AND qr.quiz_id IN ($inQuiz)")) {
+          $st->bind_param('ss'.$typesQuiz, $userEmail, $userEmail, ...$quizIds);
+          $st->execute(); $r=$st->get_result(); while($row=$r->fetch_assoc()){ $quizDone[(int)$row['speaker_id']]=true; } $st->close();
+        }
+        if ($st = $db->prepare("SELECT speaker_id FROM quiz_responses WHERE (user_email = ? OR email = ?) AND speaker_id IN ($in)")) {
+          $st->bind_param('ss'.$typesIn, $userEmail, $userEmail, ...$speakerIds);
+          $st->execute(); $r=$st->get_result(); while($row=$r->fetch_assoc()){ $quizDone[(int)$row['speaker_id']]=true; } $st->close();
+        }
+      }
+    }
+
+    // Evaluation submissions
+    $evalDone = [];
+    if ($userId > 0) {
+      if ($st = $db->prepare("SELECT speaker_id FROM speaker_evaluations WHERE user_id = ? AND speaker_id IN ($in)")) {
+        $st->bind_param('i'.$typesIn, $userId, ...$speakerIds);
+        $st->execute(); $r=$st->get_result(); while($row=$r->fetch_assoc()){ $evalDone[(int)$row['speaker_id']]=true; } $st->close();
+      }
+    } elseif ($userEmail !== '') {
+      if ($st = $db->prepare("SELECT speaker_id FROM speaker_evaluations WHERE (user_email = ? OR email = ?) AND speaker_id IN ($in)")) {
+        $st->bind_param('ss'.$typesIn, $userEmail, $userEmail, ...$speakerIds);
+        $st->execute(); $r=$st->get_result(); while($row=$r->fetch_assoc()){ $evalDone[(int)$row['speaker_id']]=true; } $st->close();
+      }
+    }
+    if ($resTbl = $db->query("SHOW TABLES LIKE 'speaker_eval_responses'")) {
+      if ($resTbl->num_rows > 0) {
+        $resTbl->close();
+        if ($userId > 0) {
+          if ($st = $db->prepare("SELECT speaker_id FROM speaker_eval_responses WHERE user_id = ? AND speaker_id IN ($in)")) {
+            $st->bind_param('i'.$typesIn, $userId, ...$speakerIds);
+            $st->execute(); $r=$st->get_result(); while($row=$r->fetch_assoc()){ $evalDone[(int)$row['speaker_id']]=true; } $st->close();
+          }
+        } elseif ($userEmail !== '') {
+          if ($st = $db->prepare("SELECT speaker_id FROM speaker_eval_responses WHERE (user_email = ? OR email = ?) AND speaker_id IN ($in)")) {
+            $st->bind_param('ss'.$typesIn, $userEmail, $userEmail, ...$speakerIds);
+            $st->execute(); $r=$st->get_result(); while($row=$r->fetch_assoc()){ $evalDone[(int)$row['speaker_id']]=true; } $st->close();
+          }
+        }
+      } else { $resTbl->close(); }
+    }
+
+    foreach ($speakers as &$sp) {
+      $sid = (int)$sp['id'];
+      $hasQ = isset($quizMap[$sid]);
+      $done = isset($evalDone[$sid]) && (!$hasQ || isset($quizDone[$sid]));
+      $sp['finished'] = $done ? 1 : 0;
+    }
+    unset($sp);
+  }
 }
 
 $rooms = [];

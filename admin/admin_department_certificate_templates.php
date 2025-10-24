@@ -153,18 +153,20 @@ if($_SERVER['REQUEST_METHOD']==='POST' && ($_POST['action']??'')==='save_layout'
     if(is_string($new_bg)) $bg_url=$new_bg; // replace if uploaded
 
     if(empty($errors)){
+      $template_html = isset($layout['template_html']) ? (string)$layout['template_html'] : '';
       // Upsert row
       if($st=$db->prepare("INSERT INTO department_certificate_templates (
-          technical_department_id,bg_url,
+          technical_department_id,template_html,bg_url,
           user_name_placeholder,department_name_placeholder,speakers_list_placeholder,
           pos_user_name_x,pos_user_name_y,pos_department_name_x,pos_department_name_y,pos_speakers_list_x,pos_speakers_list_y,
           show_user_name,show_department_name,show_speakers_list,
           font_user_name_family,font_user_name_size_px,font_user_name_color,
           font_department_name_family,font_department_name_size_px,font_department_name_color,
           font_speakers_list_family,font_speakers_list_size_px,font_speakers_list_color
-        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
         ON DUPLICATE KEY UPDATE
           bg_url=VALUES(bg_url),
+          template_html=VALUES(template_html),
           user_name_placeholder=VALUES(user_name_placeholder),
           department_name_placeholder=VALUES(department_name_placeholder),
           speakers_list_placeholder=VALUES(speakers_list_placeholder),
@@ -176,10 +178,10 @@ if($_SERVER['REQUEST_METHOD']==='POST' && ($_POST['action']??'')==='save_layout'
           font_department_name_family=VALUES(font_department_name_family), font_department_name_size_px=VALUES(font_department_name_size_px), font_department_name_color=VALUES(font_department_name_color),
           font_speakers_list_family=VALUES(font_speakers_list_family), font_speakers_list_size_px=VALUES(font_speakers_list_size_px), font_speakers_list_color=VALUES(font_speakers_list_color)
         ")){
-        // 23 parameters -> types string length 23
-        // i s s s s d d d d d d i i i s i s s i s s i s
-        $st->bind_param('issssddddddiiisississis',
-          $dept_id,$bg_url,
+        // 24 parameters -> types string length 24
+        // i s s s s s d d d d d d i i i s i s s i s s i s
+        $st->bind_param('isssssddddddiiisississis',
+          $dept_id,$template_html,$bg_url,
           $user_ph,$dept_ph,$speak_ph,
           $pos_user_x,$pos_user_y,$pos_dept_x,$pos_dept_y,$pos_speakers_x,$pos_speakers_y,
           $show_user,$show_dept,$show_speakers,

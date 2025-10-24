@@ -1,5 +1,6 @@
 <?php
 header('Content-Type: application/json');
+session_start();
 require_once __DIR__ . '/../db.php';
 if (isset($conn) && $conn instanceof mysqli) { $db = $conn; } elseif (isset($mysqli) && $mysqli instanceof mysqli) { $db = $mysqli; } else { http_response_code(500); echo json_encode(['error'=>'DB unavailable']); exit; }
 
@@ -40,10 +41,15 @@ if ($user_id > 0 && !empty($speakers)) {
         // Build flags into speakers array
         foreach ($speakers as &$sp) {
                 $sid = (int)$sp['id'];
-                $sp['evaluated'] = !empty($evalMap[$sid]);
-                $sp['has_quiz'] = !empty($quizExists[$sid]);
-                $sp['quiz_submitted'] = !empty($quizSub[$sid]);
+                $hasEval = !empty($evalMap[$sid]);
+                $hasQuiz = !empty($quizExists[$sid]);
+                $quizDone = !empty($quizSub[$sid]);
+                $sp['evaluated'] = $hasEval;
+                $sp['has_quiz'] = $hasQuiz;
+                $sp['quiz_submitted'] = $quizDone;
                 $sp['requires_evaluation'] = true; // for clarity in UI
+                // Finished when evaluation done and (no quiz or quiz submitted)
+                $sp['finished'] = ($hasEval && (!$hasQuiz || $quizDone)) ? 1 : 0;
         }
         unset($sp);
 }

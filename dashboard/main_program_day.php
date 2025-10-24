@@ -114,8 +114,10 @@ $dayId = isset($_GET['day_id']) ? (int)$_GET['day_id'] : 0; if ($dayId <= 0) { h
     const titleEl = document.getElementById('dayTitle');
     const subEl = document.getElementById('daySubtitle');
     if(!data.day){ titleEl.textContent='Day Not Found'; subEl.textContent=''; return; }
-    titleEl.textContent = 'Main Program - ' + (data.day.label || '');
-    subEl.textContent = 'Select a speaker to open their session page (quiz, evaluation, and resources).';
+  const dayLabel = (data.day.label || '').toString().trim();
+  const selectedText = dayLabel ? ('Selected ' + dayLabel) : ('Selected Day ' + String(<?= (int)$dayId ?>));
+  titleEl.textContent = 'Main Program - ' + (dayLabel || '');
+  subEl.textContent = selectedText + ' • Select a speaker to open their session page (quiz, evaluation, and resources).';
     const rooms = data.rooms || {};
     const keys = Object.keys(rooms);
     if(keys.length === 0){ document.getElementById('emptyState').classList.remove('d-none'); return; }
@@ -136,7 +138,12 @@ $dayId = isset($_GET['day_id']) ? (int)$_GET['day_id'] : 0; if ($dayId <= 0) { h
           const et = (sp.end_time||'');
             timeTxt = st + (et ? ' - ' + et.substring(0,5) : '');
         }
-        item.innerHTML = '<div class="d-flex justify-content-between align-items-start mb-1"><strong>' + esc(sp.name || '') + '</strong></div>'
+        const finished = (sp.finished === 1 || sp.finished === '1' || sp.finished === true);
+        const badge = finished ? '<span class="badge bg-success ms-2">Finished</span>' : '';
+        item.innerHTML = '<div class="d-flex justify-content-between align-items-start mb-1">'
+          + '<strong>' + esc(sp.name || '') + '</strong>'
+          + (badge ? '<div>' + badge + '</div>' : '')
+          + '</div>'
           + (sp.topic? '<div class="speaker-title mb-1">'+esc(sp.topic)+'</div>' : (sp.title? '<div class="speaker-title mb-1">'+esc(sp.title)+'</div>' : ''))
           + '<div class="speaker-time">'+esc(timeTxt)+'</div>';
         item.addEventListener('click', ()=> { window.location = 'speaker_form.php?id=' + encodeURIComponent(sp.id); });

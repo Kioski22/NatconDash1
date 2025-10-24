@@ -1,0 +1,8 @@
+🚀 Deploying project to cPanel via FTP over TLS... 
+=================================================== 
+Using WinSCP at: C:\Program Files (x86)\WinSCP\WinSCP.com 
+Local dir:  
+Remote dir: /home/psmenow/icto.psmeinc.org.ph/ 
+Host: 20.24.15.42 
+User: NatconDash1%40psmeinc.org.ph 
+--------------------------------------------------- 

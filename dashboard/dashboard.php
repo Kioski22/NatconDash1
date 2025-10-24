@@ -481,9 +481,15 @@ $userName = $_SESSION['user_name'] ?? 'Account';
                 and comprehensive evaluation systems designed for modern conventions.
               </p>
               <div class="d-flex flex-column flex-sm-row gap-3">
-                <a href="programs.php" class="btn btn-warning btn-lg rounded-pill px-3 py-3 fs-6 fw-medium text-black">
-                  <i class="fas fa-door-open me-2"></i>Enter Function Room
-                </a>
+                <?php if(!$isLoggedIn): ?>
+                  <a href="../Credentials/signup.php" class="btn btn-warning btn-lg rounded-pill px-3 py-3 fs-6 fw-medium text-black">
+                    <i class="fas fa-user-plus me-2"></i>Sign Up Now
+                  </a>
+                <?php else: ?>
+                  <a href="programs.php" class="btn btn-warning btn-lg rounded-pill px-3 py-3 fs-6 fw-medium text-black">
+                    <i class="fas fa-door-open me-2"></i>Enter Function Room
+                  </a>
+                <?php endif; ?>
                 <a href="#" class="btn btn-outline-secondary btn-lg rounded-pill px-3 py-3 fs-6 fw-medium">
                   <i class="fas fa-info-circle me-2"></i>Learn More
                 </a>
@@ -664,6 +670,74 @@ $userName = $_SESSION['user_name'] ?? 'Account';
       if(heroBtn){
         heroBtn.addEventListener('click', (e)=>{ e.preventDefault(); handleRedirect('../Credentials/login.php','Redirecting to Login...','Preparing your session'); });
       }
+    })();
+  </script>
+
+  <?php if (!$isLoggedIn): ?>
+  <!-- First-Visit Onboarding Modal (guests only) -->
+  <div class="modal fade" id="onboardModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+      <div class="modal-content border-0 shadow">
+        <div class="modal-header border-0">
+          <h5 class="modal-title fw-bold text-primary">Welcome</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+        </div>
+        <div class="modal-body">
+          <p class="mb-3">To participate in sessions and earn certificates, follow these steps:</p>
+          <ol class="ps-3 small mb-0">
+            <li class="mb-2">Sign up for an account, then log in.</li>
+            <li class="mb-2">Enter the Function Room.</li>
+            <li class="mb-2">Select the day you are currently attending.</li>
+            <li class="mb-2">Choose your program:
+              <ul class="mt-1">
+                <li><strong>Main Program:</strong> select the speaker you will attend.</li>
+                <li><strong>Sub Program:</strong> select the technical conference first, then choose the speaker.</li>
+              </ul>
+            </li>
+          </ol>
+        </div>
+        <div class="modal-footer border-0 d-flex justify-content-between">
+          <div class="form-check">
+            <input class="form-check-input" type="checkbox" value="1" id="onboardDontShow">
+            <label class="form-check-label small" for="onboardDontShow">Don't show again</label>
+          </div>
+          <div class="d-flex gap-2">
+            <?php if (!$isLoggedIn): ?>
+            <a href="../Credentials/signup.php" class="btn btn-outline-primary btn-sm">Sign Up</a>
+            <a href="../Credentials/login.php" class="btn btn-primary btn-sm">Login</a>
+            <?php else: ?>
+            <a href="programs.php" class="btn btn-primary btn-sm">Enter Function Room</a>
+            <?php endif; ?>
+            <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Got it</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <?php endif; ?>
+
+  <script>
+    // Auto-open onboarding modal on first visit to dashboard (guests only)
+    (function(){
+      const STORAGE_KEY = 'natcon_onboard_seen_v1_dashboard';
+      try {
+        // If user is logged in, do nothing (modal not present)
+        const isLoggedIn = <?= $isLoggedIn ? 'true':'false' ?>;
+        if (isLoggedIn) return;
+        const seen = localStorage.getItem(STORAGE_KEY) === '1';
+        // Only show on first land if not seen
+        if (!seen) {
+          const modalEl = document.getElementById('onboardModal');
+          if (modalEl && window.bootstrap) {
+            const modal = new bootstrap.Modal(modalEl, { backdrop: 'static', keyboard: true });
+            // Delay slightly to avoid clashing with initial layout/animations
+            setTimeout(()=> modal.show(), 400);
+            const dontShow = document.getElementById('onboardDontShow');
+            const markSeen = () => { if (dontShow?.checked) { localStorage.setItem(STORAGE_KEY, '1'); } };
+            modalEl.addEventListener('hidden.bs.modal', markSeen);
+          }
+        }
+      } catch(e) { /* ignore storage errors */ }
     })();
   </script>
 

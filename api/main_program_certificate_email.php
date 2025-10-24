@@ -80,6 +80,12 @@ function obtain_certificate(mysqli $db, int $user_id, bool $forceRegen=false): a
 $forceRegen = false; $sendOnly=false; $rawBody=file_get_contents('php://input'); if($rawBody){ $in=json_decode($rawBody,true); if(is_array($in)){ if(!empty($in['regenerate'])) $forceRegen=true; if(!empty($in['send_only'])) $sendOnly=true; }}
 if(isset($_GET['regenerate']) && $_GET['regenerate']=='1') $forceRegen=true;
 
+$getSetting = function(mysqli $db, string $key, $default=null){ if(!$st=$db->prepare('SELECT setting_value FROM admin_settings WHERE setting_key=? LIMIT 1')) return $default; $st->bind_param('s',$key); $st->execute(); $st->bind_result($val); $out=$default; if($st->fetch()){ $out=$val; } $st->close(); return $out; };
+$certEnabled = ((int)($getSetting($db,'cert_generation_enabled','0') ?? '0') === 1);
+$autoEnableStr = (string)($getSetting($db,'cert_auto_enable_date','') ?? ''); if(strpos($autoEnableStr,'T')!==false){ $autoEnableStr=str_replace('T',' ',$autoEnableStr); }
+$autoEnableTs = $autoEnableStr!=='' ? @strtotime($autoEnableStr) : null; $canGenerateNow = $certEnabled || ($autoEnableTs !== null && time() >= $autoEnableTs);
+if(!$canGenerateNow){ http_response_code(403); echo json_encode(['ok'=>false,'error'=>'Certificate generation is not yet enabled','activation_at'=>$autoEnableStr]); exit; }
+
 $cert = obtain_certificate($db,$user_id,$forceRegen);
 if(!$cert || empty($cert['ok'])){ http_response_code(400); echo json_encode(['ok'=>false,'error'=>$cert['error']??'Unable to obtain certificate']); exit; }
 

@@ -18,6 +18,10 @@ $forceRegen=false; $raw=file_get_contents('php://input'); if($raw){ $in=json_dec
 if(isset($_GET['regenerate']) && $_GET['regenerate']=='1') $forceRegen=true;
 
 // Compute attendance progress (mirrors logic in main_program_attendance_certificate.php)
+$getSetting = function(mysqli $db, string $key, $default=null){ if(!$st=$db->prepare('SELECT setting_value FROM admin_settings WHERE setting_key=? LIMIT 1')) return $default; $st->bind_param('s',$key); $st->execute(); $st->bind_result($val); $out=$default; if($st->fetch()){ $out=$val; } $st->close(); return $out; };
+$certEnabled = ((int)($getSetting($db,'cert_generation_enabled','0') ?? '0') === 1);
+$autoEnableStr = (string)($getSetting($db,'cert_auto_enable_date','') ?? ''); if(strpos($autoEnableStr,'T')!==false){ $autoEnableStr=str_replace('T',' ',$autoEnableStr); }
+$autoEnableTs = $autoEnableStr!=='' ? @strtotime($autoEnableStr) : null; $canGenerateNow = $certEnabled || ($autoEnableTs !== null && time() >= $autoEnableTs);
 $days=[]; if($res=$db->query("SELECT id,label,day_date,is_enabled FROM function_room_days ORDER BY day_date ASC")){ while($row=$res->fetch_assoc()) $days[]=$row; $res->close(); }
 $dayNumberById=[]; foreach($days as $i=>$d){ $dayNumberById[(int)$d['id']]=$i+1; }
 $today=date('Y-m-d'); $requiredDayNumbers=[]; $futureDayNumbers=[];
@@ -25,8 +29,11 @@ foreach($days as $d){ $dn=$dayNumberById[(int)$d['id']]??null; if(!$dn) continue
 $requiredDayNumbers=array_values(array_unique($requiredDayNumbers));
 $attended=[]; if($st=$db->prepare('SELECT day_number FROM attendance WHERE user_id=?')){ $st->bind_param('i',$user_id); $st->execute(); $st->bind_result($dn); while($st->fetch()) $attended[]=(int)$dn; $st->close(); }
 $attended=array_unique($attended);
+$hasAnyAttendance = count($attended) > 0;
 $missingRequired=array_values(array_diff($requiredDayNumbers,$attended));
 $incomplete=count($missingRequired)>0; $relaxedAllowed = !$incomplete || empty(array_diff($missingRequired,$futureDayNumbers));
+if(!$canGenerateNow){ http_response_code(403); echo json_encode(['ok'=>false,'error'=>'Certificate generation is not yet enabled','activation_at'=>$autoEnableStr]); exit; }
+if(!$hasAnyAttendance){ http_response_code(403); echo json_encode(['ok'=>false,'error'=>'At least one attendance submission is required']); exit; }
 if($incomplete && !$relaxedAllowed){ http_response_code(403); echo json_encode(['ok'=>false,'error'=>'Attendance incomplete','missing'=>$missingRequired,'required_days'=>$requiredDayNumbers]); exit; }
 
 // Ensure certificate table exists

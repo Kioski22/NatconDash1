@@ -42,19 +42,38 @@ if (!$hasQuiz) {
     }
   } else { $res->close(); }}
 }
-// submission status (prefer quiz_id path)
+// Best-effort migration: ensure score column exists for pass checks
+$db->query("ALTER TABLE quiz_responses ADD COLUMN IF NOT EXISTS score INT NULL");
+// submission status (prefer quiz_id path) and require pass when passing_score is configured
 if ($hasQuiz && $user_id > 0) {
-  if ($quizId > 0 && $st = $db->prepare("SELECT 1 FROM quiz_responses WHERE quiz_id=? AND user_id=? LIMIT 1")) { $st->bind_param('ii',$quizId,$user_id); $st->execute(); $st->bind_result($d); if ($st->fetch()) $hasSubmitted=true; $st->close(); }
+  if ($quizId > 0 && $st = $db->prepare("SELECT IFNULL(q.passing_score,NULL) AS ps, IFNULL(qr.score,NULL) AS sc FROM quiz_responses qr JOIN quizzes q ON q.id = qr.quiz_id WHERE qr.quiz_id=? AND qr.user_id=? LIMIT 1")) { $st->bind_param('ii',$quizId,$user_id); $st->execute(); $st->bind_result($ps,$sc); if ($st->fetch()) { $hasSubmitted = ($ps===null) ? true : (is_numeric($sc) && is_numeric($ps) && (int)$sc >= (int)$ps); } $st->close(); }
   if (!$hasSubmitted && $st = $db->prepare("SELECT 1 FROM quiz_responses WHERE speaker_id=? AND user_id=? LIMIT 1")) { $st->bind_param('ii',$speakerId,$user_id); $st->execute(); $st->bind_result($d); if ($st->fetch()) $hasSubmitted=true; $st->close(); }
 }
-if (!$hasSubmitted && !empty($_SESSION['quiz_submitted'][$speakerId])) $hasSubmitted = true; // guest fallback
+// Removed legacy session fallback to avoid false positives
 
 // Evaluation status
 $hasEvaluation = false;
+$user_email = trim((string)($_SESSION['user_email'] ?? $_SESSION['email'] ?? ''));
 if ($user_id > 0) {
   if ($st = $db->prepare('SELECT 1 FROM speaker_evaluations WHERE speaker_id=? AND user_id=? LIMIT 1')) { $st->bind_param('ii',$speakerId,$user_id); $st->execute(); $st->bind_result($d); if ($st->fetch()) $hasEvaluation = true; $st->close(); }
 }
-// Removed session fallback for evaluation to prevent false positives
+if (!$hasEvaluation && $user_email !== '') {
+  if ($st = $db->prepare('SELECT 1 FROM speaker_evaluations WHERE speaker_id=? AND (user_email = ? OR email = ?) LIMIT 1')) { $st->bind_param('iss',$speakerId,$user_email,$user_email); $st->execute(); $st->bind_result($d); if ($st->fetch()) $hasEvaluation = true; $st->close(); }
+}
+// Also consider dynamic evaluation table if present
+if (!$hasEvaluation) {
+  if ($resTbl = $db->query("SHOW TABLES LIKE 'speaker_eval_responses'")) {
+    if ($resTbl->num_rows > 0) {
+      $resTbl->close();
+      if ($user_id > 0) {
+        if ($st = $db->prepare('SELECT 1 FROM speaker_eval_responses WHERE speaker_id=? AND user_id=? LIMIT 1')) { $st->bind_param('ii',$speakerId,$user_id); $st->execute(); $st->bind_result($d); if ($st->fetch()) $hasEvaluation = true; $st->close(); }
+      }
+      if (!$hasEvaluation && $user_email !== '') {
+        if ($st = $db->prepare('SELECT 1 FROM speaker_eval_responses WHERE speaker_id=? AND (user_email = ? OR email = ?) LIMIT 1')) { $st->bind_param('iss',$speakerId,$user_email,$user_email); $st->execute(); $st->bind_result($d); if ($st->fetch()) $hasEvaluation = true; $st->close(); }
+      }
+    } else { $resTbl->close(); }
+  }
+}
 
 // Presentation (optional reuse of existing column)
 $presentationUrl = !empty($s['presentation_url']) ? $s['presentation_url'] : '';
@@ -87,6 +106,9 @@ $programsLink = 'programs.php'.($dayId > 0 ? ('?day_id='.(int)$dayId) : '');
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
 <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<?php if (!empty($photoUrl)): ?>
+<link rel="preload" as="image" href="<?= e($photoUrl) ?>">
+<?php endif; ?>
 <style>
   :root {
       --primary-color: #111e6c;
@@ -118,16 +140,75 @@ $programsLink = 'programs.php'.($dayId > 0 ? ('?day_id='.(int)$dayId) : '');
       }
  body { background: var(--primary-color); color:#fff; font-family:'Poppins',sans-serif; padding-top:70px; }
   .hero{background:#fff;color:#0b2a59;border-radius:14px;padding:32px;display:flex;gap:30px;align-items:flex-start;margin-bottom:30px;box-shadow:0 6px 22px -6px rgba(0,0,0,.12);}  
-  .avatar{width:110px;height:110px;border-radius:999px;overflow:hidden;background:#f1f3f5;display:flex;align-items:center;justify-content:center}
+  .avatar{width:110px;height:110px;border-radius:999px;overflow:hidden;background:#f1f3f5;display:flex;align-items:center;justify-content:center;flex-shrink:0;}
   .avatar img{width:100%;height:100%;object-fit:cover}
   .hero h1{font-size:1.75rem;font-weight:700;margin:0 0 8px;line-height:1.25;background:linear-gradient(90deg,#111e6c,#1d4ed8);-webkit-background-clip:text;-webkit-text-fill-color:transparent}
   .hero h2{font-size:1.25rem;font-weight:600;margin:0 0 4px;color:#0f235f}
   .session-meta{display:flex;flex-wrap:wrap;gap:10px;margin-top:14px}
+  
+  /* Mobile responsive layout */
+  @media (max-width: 768px) {
+    .hero {
+      flex-direction: column;
+      align-items: center;
+      text-align: center;
+      padding: 24px 20px;
+    }
+    .avatar {
+      width: 140px;
+      height: 140px;
+      margin-bottom: 16px;
+    }
+    .hero h1 {
+      font-size: 1.4rem;
+      word-wrap: break-word;
+      overflow-wrap: break-word;
+      hyphens: auto;
+    }
+    .hero h2 {
+      font-size: 1.1rem;
+    }
+    .session-meta {
+      justify-content: center;
+      margin-top: 12px;
+    }
+  }
+  
+  @media (max-width: 576px) {
+    .hero {
+      padding: 20px 16px;
+    }
+    .avatar {
+      width: 120px;
+      height: 120px;
+    }
+    .hero h1 {
+      font-size: 1.25rem;
+    }
+    .hero h2 {
+      font-size: 1rem;
+    }
+    .badge-room, .badge-day, .time-chip {
+      font-size: 0.7rem;
+      padding: 6px 10px;
+    }
+  }
   .badge-room{background:#111e6c;color:#fff;font-size:.8rem;padding:8px 14px;border-radius:40px;letter-spacing:.5px;display:inline-flex;align-items:center;gap:6px;box-shadow:0 2px 6px rgba(17,30,108,.35)}
   .badge-day{background:#e0e7ff;color:#1e3a8a;font-weight:600;font-size:.72rem;padding:6px 12px;border-radius:30px}
   .time-chip{background:#fff;border:2px solid #111e6c;color:#111e6c;font-size:.72rem;padding:6px 12px;border-radius:30px;font-weight:600}
   .panel{background:rgba(255,255,255,0.07);padding:26px;border-radius:14px;text-align:center}
   .actions .btn{width:250px;margin:8px auto;border-radius:22px;padding:10px 16px;font-weight:600;}
+  
+  @media (max-width: 576px) {
+    .panel {
+      padding: 20px 16px;
+    }
+    .actions .btn {
+      width: 100%;
+      max-width: 280px;
+    }
+  }
+  
   .btn-gray{background:#6b7280;border:none;color:#fff}
   .btn-ready{background:#22c55e;border:none;color:#fff}
   .btn-ready:hover{filter:brightness(.95)}
@@ -137,6 +218,9 @@ $programsLink = 'programs.php'.($dayId > 0 ? ('?day_id='.(int)$dayId) : '');
   .cert-link{margin-top:14px;font-size:.9rem}
   .btn-outline-light{border:2px solid #ffffff;color:#fff;background:transparent;font-weight:600}
   .btn-outline-light:hover{background:#ffffff;color:#0b2a59}
+  /* Visible back button */
+  .btn-back{background:rgba(255,255,255,0.9);border:2px solid rgba(17,30,108,0.35);color:#0b2a59;font-weight:700}
+  .btn-back:hover{background:#ffffff;transform:translateY(-1px)}
   /* Step tracker */
   .steps{display:flex;flex-wrap:wrap;gap:10px;justify-content:center;margin:-4px 0 18px;padding:0;list-style:none}
   .step{position:relative;padding:10px 16px;border-radius:30px;font-size:.7rem;font-weight:600;letter-spacing:.5px;display:flex;align-items:center;gap:6px;background:#1e3a8a;color:#cbd5e1;user-select:none;min-width:90px;justify-content:center}
@@ -150,6 +234,23 @@ $programsLink = 'programs.php'.($dayId > 0 ? ('?day_id='.(int)$dayId) : '');
   .step-na{background:#475569;color:#94a3b8}
   .step-na::before{background:#64748b}
   .step .icon{display:inline-flex;align-items:center;justify-content:center;width:16px;height:16px;font-size:.65rem;font-weight:700}
+  
+  @media (max-width: 576px) {
+    .steps {
+      gap: 8px;
+      margin-bottom: 16px;
+    }
+    .step {
+      min-width: 80px;
+      padding: 8px 12px;
+      font-size: 0.65rem;
+    }
+    .step .icon {
+      width: 14px;
+      height: 14px;
+      font-size: 0.6rem;
+    }
+  }
 </style>
 </head>
 <body>
@@ -174,7 +275,7 @@ $programsLink = 'programs.php'.($dayId > 0 ? ('?day_id='.(int)$dayId) : '');
       <div class="collapse navbar-collapse" id="navbarNav">
         <ul class="navbar-nav ms-auto align-items-center">
           <li class="nav-item">
-            <a class="nav-link fw-semibold px-3" href="<?= e($programsLink) ?>">Programs</a>
+            <a class="nav-link fw-semibold px-3" href="<?= e($programsLink) ?>">Back to Day</a>
           </li>
           <li class="nav-item">
             <a class="nav-link fw-semibold px-3" href="dashboard.php">Dashboard</a>
@@ -187,7 +288,7 @@ $programsLink = 'programs.php'.($dayId > 0 ? ('?day_id='.(int)$dayId) : '');
 <div class="container py-4">
   <div class="hero">
     <div class="avatar">
-      <?php if ($photoUrl): ?><img src="<?= e($photoUrl) ?>" alt="Speaker"><?php else: ?>
+  <?php if ($photoUrl): ?><img src="<?= e($photoUrl) ?>" alt="Speaker" width="110" height="110" decoding="async" fetchpriority="high"><?php else: ?>
         <svg width="110" height="110" viewBox="0 0 24 24"><rect width="24" height="24" rx="4" fill="#e5e7eb"/><path d="M12 12a3 3 0 100-6 3 3 0 000 6z" fill="#9ca3af"/><path d="M4 20c0-3.314 2.686-6 6-6h4c3.314 0 6 2.686 6 6" fill="#9ca3af"/></svg>
       <?php endif; ?>
     </div>
@@ -220,6 +321,11 @@ $programsLink = 'programs.php'.($dayId > 0 ? ('?day_id='.(int)$dayId) : '');
       <a id="btnEvaluation" class="btn <?= $evalLocked ? 'btn-gray btn-locked' : 'btn-warning' ?>" href="<?= (!$evalLocked && !$hasEvaluation) ? e($evaluationUrl) : '#' ?>" <?= $evalLocked ? 'data-locked="1"' : '' ?>><?= $hasEvaluation ? 'Evaluation Completed' : 'Speaker Evaluation' ?></a>
       <!-- Presentation preview (only enabled after evaluation AND file) -->
       <button id="btnPreviewPresentation" class="btn <?= $presentationLocked ? 'btn-gray btn-locked' : 'btn-ready' ?>" <?= $presentationLocked ? 'data-locked="1"' : 'data-bs-toggle="modal" data-bs-target="#presentationModal"' ?>>Preview Presentation</button>
+
+      <!-- Back to Programs -->
+      <a id="btnBackPrograms" class="btn btn-back" href="<?= e($programsLink) ?>">
+        <i class="bi bi-arrow-left me-1"></i> Back to Day
+      </a>
   <!-- Certificate & Email removed: Department-level certificate now handled on department page -->
   <div class="alert alert-info mt-3 w-100 small" style="max-width:300px;">Department certificate available after completing all speakers in its department. Return to the department list to generate.</div>
     </div>
@@ -330,11 +436,14 @@ if(!hasEval){
       if(!r.ok) return; const j = await r.json();
       if(j && j.found){
         hasEval = true; clearInterval(poll);
-        btnEval.textContent='Evaluation Completed'; btnEval.classList.add('btn-gray','btn-locked'); btnEval.setAttribute('data-locked','1');
+        btnEval.textContent='Evaluation Completed';
+        btnEval.classList.remove('btn-warning');
+        btnEval.classList.add('btn-gray','btn-locked');
+        btnEval.setAttribute('data-locked','1');
         if(hasPresentation){
           btnPreview.classList.remove('btn-gray','btn-locked'); btnPreview.classList.add('btn-ready'); btnPreview.removeAttribute('data-locked'); btnPreview.setAttribute('data-bs-toggle','modal'); btnPreview.setAttribute('data-bs-target','#presentationModal');
         }
-        btnGen.classList.remove('btn-locked'); btnGen.removeAttribute('disabled'); btnGen.removeAttribute('data-locked');
+        if (btnGen) { btnGen.classList.remove('btn-locked'); btnGen.removeAttribute('disabled'); btnGen.removeAttribute('data-locked'); }
         updateSteps();
       }
     } catch(e){}

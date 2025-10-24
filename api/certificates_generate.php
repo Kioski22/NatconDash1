@@ -15,6 +15,12 @@ $type = strtolower(trim((string)($data['type'] ?? '')));
 $allowed = ['attendance','appearance','cpd'];
 if (!in_array($type,$allowed,true)) { http_response_code(400); echo json_encode(['ok'=>false,'error'=>'Invalid certificate type']); exit; }
 
+// Acquire a short MySQL advisory lock to avoid concurrent duplicate generations for same user/type
+$lockKey = "cert:".$type.":".$user_id;
+$gotLock = 0; $lk = $db->prepare('SELECT GET_LOCK(?, 10)');
+if ($lk) { $lk->bind_param('s',$lockKey); $lk->execute(); $lk->bind_result($gotLock); $lk->fetch(); $lk->close(); }
+if ((int)$gotLock !== 1) { http_response_code(429); echo json_encode(['ok'=>false,'error'=>'Busy generating certificate, please retry']); exit; }
+
 // Map to users table column
 $colMap = [ 'attendance'=>'eligible_certificate_attendance', 'appearance'=>'eligible_certificate_appearance', 'cpd'=>'eligible_cpd_certificate' ];
 $col = $colMap[$type];
@@ -27,7 +33,11 @@ if ((int)$eligible !== 1) { http_response_code(403); echo json_encode(['ok'=>fal
 
 // Already issued? (return existing)
 if ($chk = $db->prepare('SELECT file_path FROM certificates_issued WHERE user_id=? AND cert_type=? LIMIT 1')) {
-  $chk->bind_param('is',$user_id,$type); $chk->execute(); $chk->bind_result($fp); if ($chk->fetch()) { $chk->close(); echo json_encode(['ok'=>true,'already'=>true,'file_path'=>$fp]); exit; } $chk->close();
+  $chk->bind_param('is',$user_id,$type); $chk->execute(); $chk->bind_result($fp); if ($chk->fetch()) { $chk->close();
+    // Release advisory lock before returning
+    if ($rl = $db->prepare('SELECT RELEASE_LOCK(?)')) { $rl->bind_param('s',$lockKey); $rl->execute(); $rl->close(); }
+    echo json_encode(['ok'=>true,'already'=>true,'file_path'=>$fp]); exit; }
+  $chk->close();
 }
 
 // Fetch template (pick most recently updated certificate row for this type)
@@ -179,14 +189,16 @@ $html = '<!DOCTYPE html><html><head><meta charset="utf-8"><style>'
   .'.awardee{font-weight:600;}'
   .'</style></head><body>';
 $html .= '<div class="page">';
-if ($bg_uri) { $html .= '<img class="bg" src="'.esc($bg_uri).'" />'; }
+if ($bg_uri) { $html .= '<img class="bg" src="'.esc($bg_uri).'" style="image-rendering:auto;" />'; }
 // Positions (percent) relative to original editor logic (top-left anchor — matches admin drag tool)
-$awardee_left_pct = (float)$tpl['pos_cert_awardee_name_x'];
-$awardee_top_pct  = (float)$tpl['pos_cert_awardee_name_y'];
-$seminar_left_pct = (float)$tpl['pos_seminar_title_x'];
-$seminar_top_pct  = (float)$tpl['pos_seminar_title_y'];
-$number_left_pct  = (float)$tpl['pos_cert_number_x'];
-$number_top_pct   = (float)$tpl['pos_cert_number_y'];
+// Clamp positional percentages to [0,100] to preserve layout and avoid overflow
+function clamp_pct($v){ $f=(float)$v; if($f<0)$f=0; if($f>100)$f=100; return $f; }
+$awardee_left_pct = clamp_pct($tpl['pos_cert_awardee_name_x']);
+$awardee_top_pct  = clamp_pct($tpl['pos_cert_awardee_name_y']);
+$seminar_left_pct = clamp_pct($tpl['pos_seminar_title_x']);
+$seminar_top_pct  = clamp_pct($tpl['pos_seminar_title_y']);
+$number_left_pct  = clamp_pct($tpl['pos_cert_number_x']);
+$number_top_pct   = clamp_pct($tpl['pos_cert_number_y']);
 
 $placeholders = [
   ['enabled'=>$show_awardee,'class'=>'awardee','left'=>$awardee_left_pct,'top'=>$awardee_top_pct,'text'=>$awardeeText,'fam'=>$faFam,'size'=>$faSize,'color'=>$faColor],
@@ -205,7 +217,11 @@ $html .= '</div></body></html>';
 $html = str_replace(['{CERT_NUMBER}','{CERT_NO}'],$cert_number,$html);
 
 // Render
+// Render with consistent DPI so px->pt mapping matches the admin editor math (96 CSS px = 72 pt)
 $dompdf = new Dompdf(['defaultFont'=>'Helvetica']);
+$dompdf->set_option('dpi', 96);
+$dompdf->set_option('isHtml5ParserEnabled', true);
+$dompdf->set_option('isRemoteEnabled', true);
 $dompdf->setPaper([0,0,$paperWpt,$paperHpt]);
 $dompdf->loadHtml($html,'UTF-8');
 $dompdf->render();
@@ -222,17 +238,25 @@ $relPath = 'uploads/certificates/generated/' . $fileName;
 $hasCertNumCol = false;
 if ($colCheck = $db->query("SHOW COLUMNS FROM certificates_issued LIKE 'cert_number'")) { $hasCertNumCol = $colCheck->num_rows>0; $colCheck->close(); }
 if ($hasCertNumCol) {
-  if ($ins = $db->prepare('INSERT INTO certificates_issued (user_id, cert_type, file_path, cert_number) VALUES (?,?,?,?)')) {
+  if ($ins = $db->prepare('INSERT INTO certificates_issued (user_id, cert_type, file_path, cert_number) VALUES (?,?,?,?) ON DUPLICATE KEY UPDATE file_path=VALUES(file_path), cert_number=VALUES(cert_number), generated_at=NOW()')) {
     $ins->bind_param('isss',$user_id,$type,$relPath,$cert_number);
-    if (!$ins->execute()) { http_response_code(500); echo json_encode(['ok'=>false,'error'=>'Failed to record issuance']); exit; }
+    if (!$ins->execute()) { 
+      // Release lock before erroring
+      if ($rl = $db->prepare('SELECT RELEASE_LOCK(?)')) { $rl->bind_param('s',$lockKey); $rl->execute(); $rl->close(); }
+      http_response_code(500); echo json_encode(['ok'=>false,'error'=>'Failed to record issuance']); exit; }
     $ins->close();
   }
 } else {
-  if ($ins = $db->prepare('INSERT INTO certificates_issued (user_id, cert_type, file_path) VALUES (?,?,?)')) {
+  if ($ins = $db->prepare('INSERT INTO certificates_issued (user_id, cert_type, file_path) VALUES (?,?,?) ON DUPLICATE KEY UPDATE file_path=VALUES(file_path), generated_at=NOW()')) {
     $ins->bind_param('iss',$user_id,$type,$relPath);
-    if (!$ins->execute()) { http_response_code(500); echo json_encode(['ok'=>false,'error'=>'Failed to record issuance']); exit; }
+    if (!$ins->execute()) { 
+      if ($rl = $db->prepare('SELECT RELEASE_LOCK(?)')) { $rl->bind_param('s',$lockKey); $rl->execute(); $rl->close(); }
+      http_response_code(500); echo json_encode(['ok'=>false,'error'=>'Failed to record issuance']); exit; }
     $ins->close();
   }
 }
+
+// Release advisory lock after successful issuance record
+if ($rl = $db->prepare('SELECT RELEASE_LOCK(?)')) { $rl->bind_param('s',$lockKey); $rl->execute(); $rl->close(); }
 
 echo json_encode(['ok'=>true,'file_path'=>$relPath,'already'=>false,'cert_number'=>$cert_number]);

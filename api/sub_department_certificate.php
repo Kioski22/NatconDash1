@@ -21,6 +21,7 @@ elseif (isset($mysqli) && $mysqli instanceof mysqli) $db = $mysqli;
 else { http_response_code(500); echo json_encode(['ok'=>false,'error'=>'DB unavailable']); exit; }
 
 $user_id = isset($_SESSION['user_id']) ? (int)$_SESSION['user_id'] : 0;
+$user_email = trim((string)($_SESSION['user_email'] ?? $_SESSION['email'] ?? ''));
 if ($user_id <= 0) { http_response_code(401); echo json_encode(['ok'=>false,'error'=>'Login required']); exit; }
 
 // Settings helper
@@ -45,7 +46,21 @@ function get_setting(mysqli $db, string $key, $default = '') {
 // Helper: fetch speaker (with dept)
 function fetch_speaker_with_dept(mysqli $db, int $speaker_id): ?array {
     if ($st = $db->prepare("SELECT id,name,title,program_type,technical_department_id FROM speakers WHERE id=? LIMIT 1")) {
-        $st->bind_param('i',$speaker_id); $st->execute(); $r=$st->get_result()->fetch_assoc(); $st->close(); return $r ?: null;
+        $st->bind_param('i',$speaker_id);
+        $st->execute();
+        $st->bind_result($id,$name,$title,$program_type,$technical_department_id);
+        if ($st->fetch()) {
+            $row = [
+                'id'=>$id,
+                'name'=>$name,
+                'title'=>$title,
+                'program_type'=>$program_type,
+                'technical_department_id'=>$technical_department_id
+            ];
+            $st->close();
+            return $row;
+        }
+        $st->close();
     }
     return null;
 }
@@ -54,13 +69,21 @@ function fetch_speaker_with_dept(mysqli $db, int $speaker_id): ?array {
 function fetch_department(mysqli $db, int $dept_id): ?array {
     if ($dept_id <= 0) return null;
     if ($st = $db->prepare("SELECT id, name FROM technical_departments WHERE id=? LIMIT 1")) {
-        $st->bind_param('i',$dept_id); $st->execute(); $r=$st->get_result()->fetch_assoc(); $st->close(); return $r ?: null;
+        $st->bind_param('i',$dept_id);
+        $st->execute();
+        $st->bind_result($id,$name);
+        if ($st->fetch()) {
+            $row = ['id'=>$id,'name'=>$name];
+            $st->close();
+            return $row;
+        }
+        $st->close();
     }
     return null;
 }
 
 // Compute progress (evaluations + quiz submissions) and return granular data.
-function compute_progress(mysqli $db, int $dept_id, int $user_id): array {
+function compute_progress(mysqli $db, int $dept_id, int $user_id, string $user_email = ''): array {
     $totalSpeakers = 0;
     $evalCompleted = 0; $evalRemaining = [];
     $quizTotal = 0; $quizCompleted = 0; $quizRemaining = [];
@@ -73,14 +96,19 @@ function compute_progress(mysqli $db, int $dept_id, int $user_id): array {
     if ($res = $db->query("SHOW TABLES LIKE 'quiz_questions'")) { $hasQuizQuestions = $res->num_rows > 0; $res->close(); }
 
     if ($st = $db->prepare("SELECT id FROM speakers WHERE program_type='sub' AND technical_department_id=?")) {
-        $st->bind_param('i',$dept_id); $st->execute(); $res=$st->get_result();
-        while($row=$res->fetch_assoc()) {
-            $spId = (int)$row['id'];
+        $st->bind_param('i',$dept_id);
+        $st->execute();
+        $st->bind_result($spId);
+        while($st->fetch()) {
             $totalSpeakers++;
             // Evaluation status
             $evalDone = false;
+            // By user_id
             if ($chk = $db->prepare("SELECT 1 FROM speaker_evaluations WHERE speaker_id=? AND user_id=? LIMIT 1")) { $chk->bind_param('ii',$spId,$user_id); $chk->execute(); $chk->bind_result($d); if($chk->fetch()) $evalDone=true; $chk->close(); }
             if (!$evalDone && $chk = $db->prepare("SELECT 1 FROM speaker_eval_responses WHERE speaker_id=? AND user_id=? LIMIT 1")) { $chk->bind_param('ii',$spId,$user_id); $chk->execute(); $chk->bind_result($dd); if($chk->fetch()) $evalDone=true; $chk->close(); }
+            // Email fallback (captures guest or pre-linked responses)
+            if (!$evalDone && $user_email !== '' && $chk = $db->prepare("SELECT 1 FROM speaker_evaluations WHERE speaker_id=? AND (user_email = ? OR email = ?) LIMIT 1")) { $chk->bind_param('iss',$spId,$user_email,$user_email); $chk->execute(); $chk->bind_result($de); if($chk->fetch()) $evalDone=true; $chk->close(); }
+            if (!$evalDone && $user_email !== '' && $chk = $db->prepare("SELECT 1 FROM speaker_eval_responses WHERE speaker_id=? AND (user_email = ? OR email = ?) LIMIT 1")) { $chk->bind_param('iss',$spId,$user_email,$user_email); $chk->execute(); $chk->bind_result($de2); if($chk->fetch()) $evalDone=true; $chk->close(); }
             if ($evalDone) $evalCompleted++; else $evalRemaining[] = $spId;
 
             // Quiz requirement detection
@@ -99,9 +127,11 @@ function compute_progress(mysqli $db, int $dept_id, int $user_id): array {
                 $userHasResponse=false; $userScore=null;
                 if ($quizId > 0) {
                     if ($qr = $db->prepare("SELECT score FROM quiz_responses WHERE quiz_id=? AND user_id=? LIMIT 1")) { $qr->bind_param('ii',$quizId,$user_id); $qr->execute(); $qr->bind_result($sc); if($qr->fetch()){ $userHasResponse=true; $userScore=(int)$sc; } $qr->close(); }
+                    if (!$userHasResponse && $user_email !== '' && $qrE = $db->prepare("SELECT score FROM quiz_responses WHERE quiz_id=? AND (user_email = ? OR email = ?) LIMIT 1")) { $qrE->bind_param('iss',$quizId,$user_email,$user_email); $qrE->execute(); $qrE->bind_result($scE); if($qrE->fetch()){ $userHasResponse=true; $userScore=(int)$scE; } $qrE->close(); }
                 }
                 if (!$userHasResponse) {
                     if ($qr2 = $db->prepare("SELECT score FROM quiz_responses WHERE speaker_id=? AND user_id=? LIMIT 1")) { $qr2->bind_param('ii',$spId,$user_id); $qr2->execute(); $qr2->bind_result($sc); if($qr2->fetch()){ $userHasResponse=true; $userScore=(int)$sc; } $qr2->close(); }
+                    if (!$userHasResponse && $user_email !== '' && $qr2E = $db->prepare("SELECT score FROM quiz_responses WHERE speaker_id=? AND (user_email = ? OR email = ?) LIMIT 1")) { $qr2E->bind_param('iss',$spId,$user_email,$user_email); $qr2E->execute(); $qr2E->bind_result($scE2); if($qr2E->fetch()){ $userHasResponse=true; $userScore=(int)$scE2; } $qr2E->close(); }
                 }
                 $passed=false; if($userHasResponse){
                     // Determine total gradable questions
@@ -158,7 +188,7 @@ if ($method === 'GET') {
     ];
     [$dept_id,$dept,$err] = resolve_department_id($db,$input);
     if ($err) { http_response_code(400); echo json_encode(['ok'=>false,'error'=>$err]); exit; }
-    $progress = compute_progress($db,$dept_id,$user_id);
+    $progress = compute_progress($db,$dept_id,$user_id,$user_email);
 
     // Include current rule flags in status for transparency
     $subRequireEval = (get_setting($db,'sub_cert_require_eval', get_setting($db,'cert_require_eval','0')) === '1');
@@ -222,7 +252,7 @@ $data = json_decode($raw,true) ?: [];
 [$dept_id,$dept,$err] = resolve_department_id($db,$data);
 if ($err) { http_response_code(400); echo json_encode(['ok'=>false,'error'=>$err]); exit; }
 
-$progress = compute_progress($db,$dept_id,$user_id);
+$progress = compute_progress($db,$dept_id,$user_id,$user_email);
 
 // Global gate (master enable or scheduled activation)
 $certEnabled = get_setting($db,'cert_generation_enabled','0');
@@ -249,10 +279,45 @@ if(!($certEnabled==='1' || $canByDate)){
 // Helper to generate attendance certificate (generic certificates table template)
 function generate_attendance_certificate(mysqli $db, int $user_id, int $dept_id): array {
     // Select best template for this department
-    if (!$st = $db->prepare("SELECT * FROM certificates WHERE type='sub_program_attendance' AND scope_binding='sub_program' AND (scope_identifier=? OR scope_identifier='' OR scope_identifier IS NULL) ORDER BY CASE WHEN scope_identifier=? THEN 0 ELSE 1 END LIMIT 1")) {
+    if (!$st = $db->prepare("SELECT id,cert_number_format,cert_awardee_name,seminar_title,bg_url,show_awardee,show_seminar,show_number,\n        pos_cert_awardee_name_x,pos_cert_awardee_name_y,pos_seminar_title_x,pos_seminar_title_y,pos_cert_number_x,pos_cert_number_y,\n        font_awardee_family,font_awardee_size_px,font_awardee_color,\n        font_seminar_family,font_seminar_size_px,font_seminar_color,\n        font_number_family,font_number_size_px,font_number_color\n        FROM certificates WHERE type='sub_program_attendance' AND scope_binding='sub_program' AND (scope_identifier=? OR scope_identifier='' OR scope_identifier IS NULL) ORDER BY CASE WHEN scope_identifier=? THEN 0 ELSE 1 END LIMIT 1")) {
         return ['error'=>'Template query failed'];
     }
-    $st->bind_param('ii',$dept_id,$dept_id); $st->execute(); $res=$st->get_result(); $tpl=$res->fetch_assoc(); $st->close();
+    $st->bind_param('ii',$dept_id,$dept_id);
+    $st->execute();
+    $st->bind_result($tpl_id,$tpl_cert_number_format,$tpl_cert_awardee_name,$tpl_seminar_title,$tpl_bg_url,$tpl_show_awardee,$tpl_show_seminar,$tpl_show_number,
+        $tpl_pos_aw_x,$tpl_pos_aw_y,$tpl_pos_semi_x,$tpl_pos_semi_y,$tpl_pos_num_x,$tpl_pos_num_y,
+        $tpl_font_aw_fam,$tpl_font_aw_size,$tpl_font_aw_col,
+        $tpl_font_semi_fam,$tpl_font_semi_size,$tpl_font_semi_col,
+        $tpl_font_num_fam,$tpl_font_num_size,$tpl_font_num_col);
+    $tpl = null;
+    if ($st->fetch()) {
+        $tpl = [
+            'id'=>$tpl_id,
+            'cert_number_format'=>$tpl_cert_number_format,
+            'cert_awardee_name'=>$tpl_cert_awardee_name,
+            'seminar_title'=>$tpl_seminar_title,
+            'bg_url'=>$tpl_bg_url,
+            'show_awardee'=>$tpl_show_awardee,
+            'show_seminar'=>$tpl_show_seminar,
+            'show_number'=>$tpl_show_number,
+            'pos_cert_awardee_name_x'=>$tpl_pos_aw_x,
+            'pos_cert_awardee_name_y'=>$tpl_pos_aw_y,
+            'pos_seminar_title_x'=>$tpl_pos_semi_x,
+            'pos_seminar_title_y'=>$tpl_pos_semi_y,
+            'pos_cert_number_x'=>$tpl_pos_num_x,
+            'pos_cert_number_y'=>$tpl_pos_num_y,
+            'font_awardee_family'=>$tpl_font_aw_fam,
+            'font_awardee_size_px'=>$tpl_font_aw_size,
+            'font_awardee_color'=>$tpl_font_aw_col,
+            'font_seminar_family'=>$tpl_font_semi_fam,
+            'font_seminar_size_px'=>$tpl_font_semi_size,
+            'font_seminar_color'=>$tpl_font_semi_col,
+            'font_number_family'=>$tpl_font_num_fam,
+            'font_number_size_px'=>$tpl_font_num_size,
+            'font_number_color'=>$tpl_font_num_col,
+        ];
+    }
+    $st->close();
     if(!$tpl) return ['error'=>'No attendance template'];
 
     // Check existing
@@ -296,13 +361,24 @@ function generate_attendance_certificate(mysqli $db, int $user_id, int $dept_id)
     $fnFam=$tpl['font_number_family']??'Helvetica'; $fnSize=(int)($tpl['font_number_size_px']??16); $fnCol=$tpl['font_number_color']??'#000000';
 
     // Signatures for this certificate template
-    $sigRows=[]; if($sg=$db->prepare('SELECT indicator,signature_url,pos_x,pos_y,width_pct FROM certificate_signatures WHERE certificate_id=? AND enabled=1')){ $sg->bind_param('i',$tpl['id']); $sg->execute(); $res=$sg->get_result(); while($row=$res->fetch_assoc()) $sigRows[]=$row; $sg->close(); }
+    $sigRows=[]; if($sg=$db->prepare('SELECT indicator,signature_url,pos_x,pos_y,width_pct FROM certificate_signatures WHERE certificate_id=? AND enabled=1')){ $sg->bind_param('i',$tpl['id']); $sg->execute(); $sg->bind_result($ind,$surl,$sx,$sy,$sw); while($sg->fetch()){ $sigRows[]=['indicator'=>$ind,'signature_url'=>$surl,'pos_x'=>$sx,'pos_y'=>$sy,'width_pct'=>$sw]; } $sg->close(); }
 
     $sigHtml=''; foreach($sigRows as $sg){ $srel=$sg['signature_url']; $sdata=''; if($srel){ $sabs=__DIR__.'/../'.str_replace('..','',$srel); if(is_file($sabs)){ $d=@file_get_contents($sabs); if($d!==false){ $mime=str_ends_with(strtolower($srel),'.png')?'image/png':'image/jpeg'; $sdata='data:'.$mime.';base64,'.base64_encode($d); } } } if($sdata){ $sigHtml.='<img src="'.htmlspecialchars($sdata).'" style="position:absolute;left:'.(float)$sg['pos_x'].'%;top:'.(float)$sg['pos_y'].'%;width:'.(float)$sg['width_pct'].'%;height:auto;" />'; } }
 
-    $html='<!DOCTYPE html><html><head><meta charset="utf-8"><style>@page{margin:0;}body{margin:0;font-family:Helvetica,Arial,sans-serif;} .cv{position:relative;width:100%;min-height:600px;} .bg{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;} .txt{position:absolute;white-space:pre-wrap;line-height:1.15;font-weight:500;} </style></head><body><div class="cv">';
+    // Determine background intrinsic size to align percentage positions exactly
+    $imgW = 1600; $imgH = 1131; if (!empty($bgRel)) { $absBg = __DIR__.'/../'.str_replace('..','',$bgRel); if (is_file($absBg)) { $info = @getimagesize($absBg); if ($info) { $imgW=(int)$info[0]; $imgH=(int)$info[1]; } } }
+    if ($imgW > 2400) { $scale = 2400/$imgW; $imgW = (int)round($imgW*$scale); $imgH = (int)round($imgH*$scale); }
+    $paperWpt = $imgW*72/96; $paperHpt = $imgH*72/96;
+
+    // Heuristic: shrink awardee font a bit for very long names to reduce overflow risk
+    $faSizeAdj = $faSize; $nameLen = function_exists('mb_strlen') ? mb_strlen($awardeeText) : strlen($awardeeText);
+    if ($nameLen > 32) $faSizeAdj = max((int)round($faSizeAdj * 0.9), 16);
+    if ($nameLen > 48) $faSizeAdj = max((int)round($faSizeAdj * 0.85), 14);
+    if ($nameLen > 64) $faSizeAdj = max((int)round($faSizeAdj * 0.8), 12);
+
+    $html='<!DOCTYPE html><html><head><meta charset="utf-8"><style>@page{margin:0;}html,body{margin:0;padding:0;} .page{position:relative;width:'.$imgW.'px;height:'.$imgH.'px;font-family:Helvetica,Arial,sans-serif;} .bg{position:absolute;left:0;top:0;width:100%;height:100%;} .txt{position:absolute;white-space:nowrap;line-height:1.15;font-weight:500;}</style></head><body><div class="page">';
     if($bgData) $html.='<img class="bg" src="'.htmlspecialchars($bgData).'" />';
-    if($showAwardee) $html.='<div class="txt" style="left:'.$ax.'%;top:'.$ay.'%;font-family:'.htmlspecialchars($faFam).';font-size:'.$faSize.'px;color:'.htmlspecialchars($faCol).';">'.htmlspecialchars($awardeeText).'</div>';
+    if($showAwardee) $html.='<div class="txt" style="left:'.$ax.'%;top:'.$ay.'%;font-family:'.htmlspecialchars($faFam).';font-size:'.$faSizeAdj.'px;color:'.htmlspecialchars($faCol).';">'.htmlspecialchars($awardeeText).'</div>';
     if($showSeminar) $html.='<div class="txt" style="left:'.$sx.'%;top:'.$sy.'%;font-family:'.htmlspecialchars($fsFam).';font-size:'.$fsSize.'px;color:'.htmlspecialchars($fsCol).';">'.htmlspecialchars($seminarText).'</div>';
     if($showNumber) $html.='<div class="txt" style="left:'.$nx.'%;top:'.$ny.'%;font-family:'.htmlspecialchars($fnFam).';font-size:'.$fnSize.'px;color:'.htmlspecialchars($fnCol).';">'.htmlspecialchars($certNumber).'</div>';
     $html.=$sigHtml;
@@ -310,7 +386,7 @@ function generate_attendance_certificate(mysqli $db, int $user_id, int $dept_id)
     $html.='</div></body></html>';
 
     $dom = new Dompdf(['defaultFont'=>'Helvetica']);
-    $dom->setPaper('A4','landscape');
+    $dom->setPaper([0,0,$paperWpt,$paperHpt]);
     $dom->loadHtml($html,'UTF-8');
     $dom->render();
     $dir = __DIR__.'/../uploads/certificates/sub_departments_attendance'; if(!is_dir($dir)) @mkdir($dir,0775,true);
@@ -374,15 +450,55 @@ if ($st = $db->prepare('SELECT name FROM users WHERE id=? LIMIT 1')) { $st->bind
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
 
 $layoutRow = null; $legacyHtml = null;
-if ($st = $db->prepare('SELECT * FROM department_certificate_templates WHERE technical_department_id=? LIMIT 1')) {
-    $st->bind_param('i',$dept_id); $st->execute(); $res=$st->get_result(); $layoutRow=$res->fetch_assoc(); $st->close();
-    if ($layoutRow) { $legacyHtml = $layoutRow['template_html'] ?? null; }
+if ($st = $db->prepare('SELECT id, template_html, bg_url, user_name_placeholder, department_name_placeholder, speakers_list_placeholder,\n    pos_user_name_x, pos_user_name_y, pos_department_name_x, pos_department_name_y, pos_speakers_list_x, pos_speakers_list_y,\n    show_user_name, show_department_name, show_speakers_list,\n    font_user_name_family, font_user_name_size_px, font_user_name_color,\n    font_department_name_family, font_department_name_size_px, font_department_name_color,\n    font_speakers_list_family, font_speakers_list_size_px, font_speakers_list_color\n    FROM department_certificate_templates WHERE technical_department_id=? LIMIT 1')) {
+    $st->bind_param('i',$dept_id);
+    $st->execute();
+    $st->bind_result($lid,$lhtml,$lbg,$lph_user,$lph_dept,$lph_speakers,
+        $lpos_ux,$lpos_uy,$lpos_dx,$lpos_dy,$lpos_sx,$lpos_sy,
+        $lshow_user,$lshow_dept,$lshow_speakers,
+        $lfu_fam,$lfu_size,$lfu_col,
+        $lfd_fam,$lfd_size,$lfd_col,
+        $lfs_fam,$lfs_size,$lfs_col);
+    if ($st->fetch()) {
+        $layoutRow = [
+            'id'=>$lid,
+            'template_html'=>$lhtml,
+            'bg_url'=>$lbg,
+            'user_name_placeholder'=>$lph_user,
+            'department_name_placeholder'=>$lph_dept,
+            'speakers_list_placeholder'=>$lph_speakers,
+            'pos_user_name_x'=>$lpos_ux,
+            'pos_user_name_y'=>$lpos_uy,
+            'pos_department_name_x'=>$lpos_dx,
+            'pos_department_name_y'=>$lpos_dy,
+            'pos_speakers_list_x'=>$lpos_sx,
+            'pos_speakers_list_y'=>$lpos_sy,
+            'show_user_name'=>$lshow_user,
+            'show_department_name'=>$lshow_dept,
+            'show_speakers_list'=>$lshow_speakers,
+            'font_user_name_family'=>$lfu_fam,
+            'font_user_name_size_px'=>$lfu_size,
+            'font_user_name_color'=>$lfu_col,
+            'font_department_name_family'=>$lfd_fam,
+            'font_department_name_size_px'=>$lfd_size,
+            'font_department_name_color'=>$lfd_col,
+            'font_speakers_list_family'=>$lfs_fam,
+            'font_speakers_list_size_px'=>$lfs_size,
+            'font_speakers_list_color'=>$lfs_col,
+        ];
+        $legacyHtml = $lhtml;
+    }
+    $st->close();
 }
 
 // Load signatures (enabled) for this department (new system)
 $deptSignatures=[];
 if ($sig = $db->prepare('SELECT indicator,signature_url,pos_x,pos_y,width_pct FROM department_certificate_signatures WHERE technical_department_id=? AND enabled=1')) {
-    $sig->bind_param('i',$dept_id); $sig->execute(); $r=$sig->get_result(); while($row=$r->fetch_assoc()) $deptSignatures[]=$row; $sig->close();
+    $sig->bind_param('i',$dept_id);
+    $sig->execute();
+    $sig->bind_result($ind,$surl,$sx,$sy,$sw);
+    while($sig->fetch()) { $deptSignatures[] = ['indicator'=>$ind,'signature_url'=>$surl,'pos_x'=>$sx,'pos_y'=>$sy,'width_pct'=>$sw]; }
+    $sig->close();
 }
 
 // Build certificate HTML (department completion, with template override)
@@ -394,10 +510,11 @@ function esc($s){ return htmlspecialchars((string)$s, ENT_QUOTES|ENT_SUBSTITUTE,
 
 // Build aggregated speakers list (titles/designations) for the department
 $speakerTitles = [];
-if ($stSp = $db->prepare("SELECT DISTINCT TRIM(CONCAT(COALESCE(NULLIF(title,''),''), CASE WHEN title<>'' THEN ' - ' ELSE '' END, COALESCE(NULLIF(name,''),'') )) as label
-    FROM speakers WHERE program_type='sub' AND technical_department_id=? ORDER BY name ASC")) {
-    $stSp->bind_param('i',$dept_id); $stSp->execute(); $res = $stSp->get_result();
-    while($row = $res->fetch_assoc()) { if(!empty($row['label'])) $speakerTitles[] = $row['label']; }
+if ($stSp = $db->prepare("SELECT DISTINCT TRIM(CONCAT(COALESCE(NULLIF(title,''),''), CASE WHEN title<>'' THEN ' - ' ELSE '' END, COALESCE(NULLIF(name,''),'') )) as label\n    FROM speakers WHERE program_type='sub' AND technical_department_id=? ORDER BY name ASC")) {
+    $stSp->bind_param('i',$dept_id);
+    $stSp->execute();
+    $stSp->bind_result($label);
+    while($stSp->fetch()) { if(!empty($label)) $speakerTitles[] = $label; }
     $stSp->close();
 }
 $speakers_plain = $speakerTitles ? implode(', ', array_map('esc',$speakerTitles)) : '';
@@ -423,33 +540,18 @@ if ($layoutRow && (!empty($layoutRow['bg_url']) || !empty($layoutRow['user_name_
         $data=@file_get_contents($bgAbs); if($data!==false){ $mime = str_ends_with(strtolower($bgRel),'.png')?'image/png':'image/jpeg'; $bgData='data:'.$mime.';base64,'.base64_encode($data); }
     }
     $phUser = $layoutRow['user_name_placeholder'] ?? '{USER_NAME}';
-    $phDept = $layoutRow['department_name_placeholder'] ?? '{DEPARTMENT_NAME}';
-    $phSpeakers = $layoutRow['speakers_list_placeholder'] ?? '{SPEAKERS_LIST}';
 
-    $showUser = (int)($layoutRow['show_user_name']??1)===1;
-    $showDept = (int)($layoutRow['show_department_name']??1)===1;
-    $showSpeakers = (int)($layoutRow['show_speakers_list']??1)===1;
-
-    // Substitute runtime values
+    // Substitute runtime value (only user name is used in this generic mode)
     $txtUser = str_replace(['{USER_NAME}','{NAME}','{FULL_NAME}'],$user_name,$phUser);
-    $txtDept = str_replace(['{DEPARTMENT_NAME}','{DEPT}','{DEPARTMENT}'],$deptName,$phDept);
-    $txtSpeakers = str_replace(['{SPEAKERS_LIST}','{SPEAKERS}'],$speakers_plain,$phSpeakers);
 
     // Font settings
     $fuFam = $layoutRow['font_user_name_family'] ?? 'Helvetica';
     $fuSize = (int)($layoutRow['font_user_name_size_px'] ?? 40);
     $fuCol  = $layoutRow['font_user_name_color'] ?? '#000000';
-    $fdFam = $layoutRow['font_department_name_family'] ?? 'Helvetica';
-    $fdSize = (int)($layoutRow['font_department_name_size_px'] ?? 28);
-    $fdCol  = $layoutRow['font_department_name_color'] ?? '#000000';
-    $fsFam = $layoutRow['font_speakers_list_family'] ?? 'Helvetica';
-    $fsSize = (int)($layoutRow['font_speakers_list_size_px'] ?? 16);
-    $fsCol  = $layoutRow['font_speakers_list_color'] ?? '#000000';
-
-    // Positions
-    $ux = (float)($layoutRow['pos_user_name_x'] ?? 0); $uy = (float)($layoutRow['pos_user_name_y'] ?? 0);
-    $dx = (float)($layoutRow['pos_department_name_x'] ?? 0); $dy = (float)($layoutRow['pos_department_name_y'] ?? 0);
-    $sx = (float)($layoutRow['pos_speakers_list_x'] ?? 0); $sy = (float)($layoutRow['pos_speakers_list_y'] ?? 0);
+    // Hard-coded coordinates for user name placement (percentages relative to background)
+    // Adjust these values to reposition the user name text.
+    $ux = 44.0; // <-- change X position here (percentage from left)
+    $uy = 52.0; // <-- change Y position here (percentage from top)
 
     // Signatures layer
     $sigHtml='';
@@ -460,14 +562,21 @@ if ($layoutRow && (!empty($layoutRow['bg_url']) || !empty($layoutRow['user_name_
         if($sigData){ $sigHtml.='<img src="'.esc($sigData).'" style="position:absolute;left:'.$px.'%;top:'.$py.'%;width:'.$w.'%;height:auto;" />'; }
     }
 
-    $html='<!DOCTYPE html><html><head><meta charset="utf-8"><style>@page{margin:0;}body{margin:0;font-family:Helvetica,Arial,sans-serif;} .canvas{position:relative;width:100%;height:100%;min-height:600px;overflow:hidden;} .bg{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;} .txt{position:absolute;white-space:pre-wrap;line-height:1.15;font-weight:500;} .speakers{max-width:70%;}</style></head><body>';
-    $html.='<div class="canvas">';
+    // Size the page to the background image so percentage positions align across renderers
+    $imgW = 1600; $imgH = 1131; if ($bgAbs && is_file($bgAbs)) { $info=@getimagesize($bgAbs); if($info){ $imgW=(int)$info[0]; $imgH=(int)$info[1]; } }
+    if ($imgW > 2400) { $scale = 2400/$imgW; $imgW = (int)round($imgW*$scale); $imgH = (int)round($imgH*$scale); }
+    $paperWpt = $imgW*72/96; $paperHpt = $imgH*72/96;
+
+    // Heuristic: shrink user name font slightly for very long names
+    $fuSizeAdj = $fuSize; $nmLen = function_exists('mb_strlen') ? mb_strlen($txtUser) : strlen($txtUser);
+    if ($nmLen > 32) $fuSizeAdj = max((int)round($fuSizeAdj * 0.9), 16);
+    if ($nmLen > 48) $fuSizeAdj = max((int)round($fuSizeAdj * 0.85), 14);
+    if ($nmLen > 64) $fuSizeAdj = max((int)round($fuSizeAdj * 0.8), 12);
+
+    $html='<!DOCTYPE html><html><head><meta charset="utf-8"><style>@page{margin:0;}html,body{margin:0;padding:0;} .page{position:relative;width:'.$imgW.'px;height:'.$imgH.'px;font-family:Helvetica,Arial,sans-serif;overflow:hidden;} .bg{position:absolute;left:0;top:0;width:100%;height:100%;} .txt{position:absolute;white-space:nowrap;line-height:1.15;font-weight:500;} .txt.multiline{white-space:pre-wrap;} .speakers{max-width:70%;}</style></head><body>';
+    $html.='<div class="page">';
     if($bgData){ $html.='<img class="bg" src="'.esc($bgData).'"/>'; }
-    if($showUser) $html.='<div class="txt" style="left:'.$ux.'%;top:'.$uy.'%;font-family:'.esc($fuFam).';font-size:'.$fuSize.'px;color:'.esc($fuCol).';">'.esc($txtUser).'</div>';
-    if($showDept) $html.='<div class="txt" style="left:'.$dx.'%;top:'.$dy.'%;font-family:'.esc($fdFam).';font-size:'.$fdSize.'px;color:'.esc($fdCol).';">'.esc($txtDept).'</div>';
-    if($showSpeakers){
-        $html.='<div class="txt speakers" style="left:'.$sx.'%;top:'.$sy.'%;font-family:'.esc($fsFam).';font-size:'.$fsSize.'px;color:'.esc($fsCol).';width:50%;">'.esc($txtSpeakers).'</div>';
-    }
+    $html.='<div class="txt" style="left:'.$ux.'%;top:'.$uy.'%;font-family:'.esc($fuFam).';font-size:'.$fuSizeAdj.'px;color:'.esc($fuCol).';">'.esc($txtUser).'</div>';
     $html.=$sigHtml;
     $html.='<div style="position:absolute;right:14px;bottom:10px;font-size:11px;color:#444;">Issued '.esc($issuedAt).'</div>';
     $html.='</div></body></html>';
@@ -509,8 +618,9 @@ if ($layoutRow && (!empty($layoutRow['bg_url']) || !empty($layoutRow['user_name_
       .'</div></body></html>';
 }
 
-$dompdf = new Dompdf(['defaultFont'=>'Helvetica']);
-$dompdf->setPaper('A4','landscape');
+    $dompdf = new Dompdf(['defaultFont'=>'Helvetica']);
+    // Use background-derived paper size when available; fallback to A4 landscape if no bg
+    if(!empty($bgData)) $dompdf->setPaper([0,0,$paperWpt,$paperHpt]); else $dompdf->setPaper('A4','landscape');
 $dompdf->loadHtml($html,'UTF-8');
 $dompdf->render();
 

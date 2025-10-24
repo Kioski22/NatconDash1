@@ -41,15 +41,45 @@ $quizCoverage = ($speakersCount>0)? round((($speakersCount-$speakersNoQuiz)/$spe
 $recentQuizzes=[]; if($rq=$db->query("SELECT q.id,q.created_at,s.name AS speaker_name FROM quizzes q JOIN speakers s ON s.id=q.speaker_id ORDER BY q.created_at DESC LIMIT 8")){ while($row=$rq->fetch_assoc()) $recentQuizzes[]=$row; }
 
 // attendance
-$hasAttendanceTable = table_exists($db,'speaker_attendance');
-$attendanceByDay=[]; if($hasAttendanceTable){
-    $sqlDay="SELECT fd.id,fd.label, COUNT(DISTINCT sa.id) AS attendees
-                        FROM function_room_days fd
-                        LEFT JOIN function_rooms fr ON fr.day_id=fd.id
-                        LEFT JOIN speakers s ON s.room_id=fr.id
-                        LEFT JOIN speaker_attendance sa ON sa.speaker_id=s.id
-                        GROUP BY fd.id,fd.label ORDER BY fd.day_date ASC";
-    if($rs=$db->query($sqlDay)){ while($r=$rs->fetch_assoc()) $attendanceByDay[]=$r; }
+$hasAttendanceMain = table_exists($db,'attendance');
+$hasSpeakerAttendance = table_exists($db,'speaker_attendance');
+$hasDayNumberCol = false;
+if($hasAttendanceMain){ if($rc=$db->query("SHOW COLUMNS FROM attendance LIKE 'day_number'")){ $hasDayNumberCol = $rc->num_rows>0; $rc->close(); } }
+
+$attendanceByDay=[];
+// Build day list in order
+$daysList=[]; if($rs=$db->query("SELECT id,label FROM function_room_days ORDER BY day_date ASC")){ while($r=$rs->fetch_assoc()) $daysList[]=$r; }
+
+if($hasAttendanceMain && $hasDayNumberCol){
+    // Count by attendance.day_number (users submitting via modal)
+    $counts=[];
+    if($rc=$db->query("SELECT day_number, COUNT(*) AS c FROM attendance GROUP BY day_number")){
+        while($row=$rc->fetch_assoc()){
+            $dn = (int)$row['day_number']; $counts[$dn] = (int)$row['c'];
+        }
+        $rc->close();
+    }
+    // Map ordered days to 1-based day_number
+    $idx=0; foreach($daysList as $d){ $idx++; $attendanceByDay[] = ['id'=>(int)$d['id'], 'label'=>$d['label'], 'attendees'=> (int)($counts[$idx] ?? 0) ]; }
+}
+elseif($hasSpeakerAttendance){
+    // Fallback to speaker_attendance-derived counts (by day via speakers->rooms)
+    $sqlDay = "SELECT fd.id, fd.label, COALESCE(cnt.c,0) AS attendees
+               FROM function_room_days fd
+               LEFT JOIN (
+                   SELECT fr.day_id AS day_id, COUNT(*) AS c
+                   FROM speaker_attendance sa
+                   JOIN speakers s ON sa.speaker_id = s.id
+                   JOIN function_rooms fr ON s.room_id = fr.id
+                   GROUP BY fr.day_id
+               ) cnt ON cnt.day_id = fd.id
+               ORDER BY fd.day_date ASC";
+    if($rs=$db->query($sqlDay)){
+        while($r=$rs->fetch_assoc()) $attendanceByDay[]=$r;
+    }
+} else {
+    // No attendance sources; list days with zero counts
+    foreach($daysList as $d){ $attendanceByDay[] = ['id'=>(int)$d['id'], 'label'=>$d['label'], 'attendees'=>0]; }
 }
 $attendanceTotalAllDays=0; foreach($attendanceByDay as $d){ $attendanceTotalAllDays += (int)($d['attendees']??0); }
 
@@ -575,6 +605,11 @@ $missingQuizCertCount=count($speakersMissingQuizCert);
                             <i class="bi bi-speedometer2"></i> Dashboard
                         </a>
                     </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="admin_users.php">
+                            <i class="bi bi-people"></i> Users
+                        </a>
+                    </li>
 
                     <!-- Function Rooms Section -->
                     <li class="nav-item mt-3">
@@ -683,6 +718,11 @@ $missingQuizCertCount=count($speakersMissingQuizCert);
                             <i class="bi bi-award-fill"></i> Dept Cert Templates
                         </a>
                     </li>
+                    <li class="nav-item mt-1">
+                        <a class="nav-link" href="admin_certificates_issued.php">
+                            <i class="bi bi-collection"></i> Issued Certificates
+                        </a>
+                    </li>
 
                     <li class="nav-item mt-4">
                         <a class="nav-link text-secondary" href="admin_logout.php">
@@ -739,25 +779,43 @@ $missingQuizCertCount=count($speakersMissingQuizCert);
                             <div class="enhanced-card h-100">
                                 <div class="card-header d-flex justify-content-between align-items-center py-2">
                                     <h6 class="mb-0 d-flex align-items-center"><i class="bi bi-calendar2-check text-primary me-2"></i>Attendance by Day</h6>
-                                    <?php if ($hasAttendanceTable): ?><span class="badge badge-soft">Total: <?= (int)$attendanceTotalAllDays ?></span><?php endif; ?>
+                                                                                                            <?php if (!empty($attendanceByDay)): ?>
+                                                                                                                <span class="badge badge-soft">Total: <?= (int)$attendanceTotalAllDays ?></span>
+                                                                                                            <?php else: ?>
+                                                                                                                <span class="badge badge-soft">No attendance configured</span>
+                                                                                                            <?php endif; ?>
                                 </div>
                                 <div class="card-body" style="max-height:180px;overflow:auto;">
-                                    <?php if (!$hasAttendanceTable): ?>
-                                      <div class="text-secondary small">Waiting for attendance setup.</div>
-                                    <?php else: ?>
-                                      <?php if (empty($attendanceByDay)): ?>
-                                        <div class="text-secondary small">No attendance yet.</div>
-                                      <?php else: ?>
-                                        <div class="list-group list-group-flush">
-                                          <?php foreach ($attendanceByDay as $d): ?>
-                                            <div class="list-group-item d-flex justify-content-between align-items-center py-2">
-                                              <div class="fw-semibold small"><?= htmlspecialchars($d['day_label'] ?? 'Day', ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') ?></div>
-                                              <span class="badge badge-soft small"><?= (int)($d['attendees'] ?? 0) ?></span>
-                                            </div>
-                                          <?php endforeach; ?>
-                                        </div>
-                                      <?php endif; ?>
-                                    <?php endif; ?>
+                                                                        <?php if ($daysCount === 0): ?>
+                                                                            <div class="text-secondary small">No function room days configured yet.</div>
+                                                                        <?php else: ?>
+                                                                            <?php if (empty($attendanceByDay)): ?>
+                                                                                <div class="text-secondary small">No attendance yet.</div>
+                                                                            <?php else: ?>
+                                                                                <div class="list-group list-group-flush">
+                                                                                    <?php foreach ($attendanceByDay as $d): ?>
+                                                                                        <?php $did = (int)($d['id'] ?? 0); $dlabel = $d['label'] ?? ($d['day_label'] ?? 'Day'); $count = (int)($d['attendees'] ?? 0); ?>
+                                                                                        <div class="list-group-item d-flex justify-content-between align-items-center py-2">
+                                                                                            <div class="fw-semibold small"><?= htmlspecialchars($dlabel, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') ?></div>
+                                                                                            <div class="d-flex align-items-center gap-2">
+                                                                                                <span class="badge badge-soft small"><?= $count ?></span>
+                                                                                                                                                                                                                                                                                                <?php if ($did > 0): ?>
+                                                                                                                                                                                                                                                                                                    <?php if ($hasAttendanceMain || $hasSpeakerAttendance): ?>
+                                                                                                                                                                                                        <a class="btn btn-sm btn-outline-primary" href="../api/admin_attendance_export.php?day_id=<?= $did ?>" title="Export attendance CSV for this day">
+                                                                                                                                                                                                                <i class="bi bi-download"></i>
+                                                                                                                                                                                                        </a>
+                                                                                                                                                                                                    <?php else: ?>
+                                                                                                                                                                                                        <button class="btn btn-sm btn-outline-secondary" type="button" title="Configure attendance first" disabled>
+                                                                                                                                                                                                                <i class="bi bi-download"></i>
+                                                                                                                                                                                                        </button>
+                                                                                                                                                                                                    <?php endif; ?>
+                                                                                                                                                                                                <?php endif; ?>
+                                                                                            </div>
+                                                                                        </div>
+                                                                                    <?php endforeach; ?>
+                                                                                </div>
+                                                                            <?php endif; ?>
+                                                                        <?php endif; ?>
                                 </div>
                             </div>
                         </div>

@@ -21,8 +21,8 @@ $csrf = $_SESSION['csrf_token'];
   <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;700&display=swap" rel="stylesheet">
   <style>
     :root{
-      --gf-primary:#111e6c;      /* Google Forms purple */
-      --gf-primary-d:#111e6c;
+      --gf-primary:#111e6c;
+      --gf-primary-d:#0d1654;
       --gf-bg:#f1f3f4;
       --gf-card:#ffffff;
       --gf-text:#202124;
@@ -32,68 +32,302 @@ $csrf = $_SESSION['csrf_token'];
       --gf-chip-active:#e8def8;
       --gf-danger:#d93025;
     }
-    body.gf-body{ background:var(--gf-bg); color:var(--gf-text); font-family:'Poppins';}
-    .gf-header{
-      background:linear-gradient(var(--gf-primary));
-      color:#fff; min-height:160px; display:flex; align-items:flex-end;
+    body.gf-body{ 
+      background:var(--gf-bg); 
+      color:var(--gf-text); 
+      font-family:'Poppins', sans-serif;
+      font-size:18px; /* Base larger for seniors */
+      line-height:1.7;
     }
-    .gf-header .inner{ width:100%; max-width:720px; margin:0 auto; padding:24px 16px; }
-    .gf-header .back-link{ color:#fff; opacity:.9; text-decoration:none; }
-    .gf-header .back-link:hover{ opacity:1; text-decoration:underline; }
+    .gf-header{
+      background:linear-gradient(135deg, var(--gf-primary), var(--gf-primary-d));
+      color:#fff; 
+      min-height:200px; 
+      display:flex; 
+      align-items:flex-end;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+    }
+    .gf-header .inner{ 
+      width:100%; 
+      max-width:800px; 
+      margin:0 auto; 
+      padding:32px 20px; 
+    }
+    .gf-header .back-link{ 
+      color:#fff; 
+      opacity:.95; 
+      text-decoration:none; 
+      font-size:1.1rem;
+      font-weight:500;
+      display:inline-flex;
+      align-items:center;
+      gap:8px;
+      padding:8px 16px;
+      border-radius:8px;
+      transition:all 0.2s ease;
+    }
+    .gf-header .back-link:hover{ 
+      opacity:1; 
+      background:rgba(255,255,255,0.15);
+    }
+    .gf-header h1{
+      font-size:2.2rem;
+      font-weight:700;
+      margin-top:16px;
+      margin-bottom:8px;
+    }
+    .gf-header p{
+      font-size:1.15rem;
+      opacity:0.95;
+    }
 
-    .gf-wrap{ max-width:720px; margin:-64px auto 40px; padding:0 16px; padding-top:70px;}
+    .gf-wrap{ 
+      max-width:800px; 
+      margin:-80px auto 40px; 
+      padding:0 20px; 
+      padding-top:90px;
+    }
     .gf-card{
       background:var(--gf-card);
-      border-radius:8px;
-      box-shadow:0 1px 2px rgba(0,0,0,.08), 0 1px 3px rgba(0,0,0,.06);
-      margin-bottom:14px;
+      border-radius:12px;
+      box-shadow:0 2px 8px rgba(0,0,0,.1), 0 1px 4px rgba(0,0,0,.08);
+      margin-bottom:20px;
       overflow:hidden;
+      border:1px solid rgba(0,0,0,0.05);
     }
-    .gf-card .section{ padding:22px 24px; }
-    .gf-title{ font-size:1.6rem; font-weight:700; margin:0 0 6px; }
-    .gf-sub{ color:var(--gf-muted); margin:0; }
-    .gf-required-note{ color:var(--gf-danger); font-size:.9rem; margin-top:10px; }
+    .gf-card .section{ 
+      padding:32px 32px; 
+    }
+    .gf-title{ 
+      font-size:2rem; 
+      font-weight:700; 
+      margin:0 0 12px; 
+      color:var(--gf-primary);
+    }
+    .gf-sub{ 
+      color:var(--gf-muted); 
+      margin:0; 
+      font-size:1.1rem;
+      line-height:1.6;
+    }
+    .gf-required-note{ 
+      color:var(--gf-danger); 
+      font-size:1.05rem; 
+      margin-top:16px; 
+      font-weight:600;
+    }
 
-    .q-title{ font-weight:500; margin-bottom:10px; }
-    .q-required::after{ content:" *"; color:var(--gf-danger); }
-    .chip-group{ display:flex; flex-wrap:wrap; gap:10px; }
-    .chip-input{ position:absolute; opacity:0; pointer-events:none; }
-    .chip{
-      display:inline-flex; align-items:center; justify-content:center;
-      min-width:44px; height:40px; padding:0 14px; border-radius:20px;
-      background:var(--gf-chip); color:var(--gf-chip-text);
-      border:2px solid transparent; cursor:pointer; user-select:none;
-      transition:all .15s ease;
-      font-weight:500;
+    .q-title{ 
+      font-weight:600; 
+      margin-bottom:16px; 
+      font-size:1.2rem;
+      line-height:1.5;
+      color:#1a1a1a;
     }
-    .chip:hover{ filter:brightness(.98); }
+    .q-required::after{ 
+      content:" *"; 
+      color:var(--gf-danger); 
+      font-weight:700;
+    }
+    
+    .chip-group{ 
+      display:flex; 
+      flex-wrap:wrap; 
+      gap:14px; 
+    }
+    .chip-input{ 
+      position:absolute; 
+      opacity:0; 
+      pointer-events:none; 
+    }
+    .chip{
+      display:inline-flex; 
+      align-items:center; 
+      justify-content:center;
+      min-width:56px; 
+      height:56px; 
+      padding:0 20px; 
+      border-radius:28px;
+      background:var(--gf-chip); 
+      color:var(--gf-chip-text);
+      border:3px solid transparent; 
+      cursor:pointer; 
+      user-select:none;
+      transition:all .2s ease;
+      font-weight:600;
+      font-size:1.15rem;
+      box-shadow:0 2px 4px rgba(0,0,0,0.08);
+    }
+    .chip:hover{ 
+      transform:translateY(-2px);
+      box-shadow:0 4px 8px rgba(0,0,0,0.12);
+    }
     .chip-input:checked + .chip{
       background:var(--gf-chip-active);
       border-color:var(--gf-primary);
       color:var(--gf-text);
-      box-shadow:inset 0 0 0 1px var(--gf-primary);
+      box-shadow:0 0 0 3px rgba(17,30,108,0.15), 0 4px 8px rgba(0,0,0,0.12);
+      transform:scale(1.05);
     }
 
-    .gf-textarea{ resize:vertical; min-height:100px; }
+    .form-control, .form-select{
+      font-size:1.1rem;
+      padding:14px 16px;
+      border:2px solid #ddd;
+      border-radius:8px;
+      transition:all 0.2s ease;
+    }
+    .form-control:focus, .form-select:focus{
+      border-color:var(--gf-primary);
+      box-shadow:0 0 0 3px rgba(17,30,108,0.1);
+    }
+    .gf-textarea{ 
+      resize:vertical; 
+      min-height:140px; 
+      line-height:1.6;
+    }
 
-    .gf-actions{ padding:16px 24px 24px; display:flex; justify-content:flex-start; gap:12px; }
+    .form-check{
+      margin-bottom:12px;
+      padding-left:0;
+    }
+    .form-check-input{
+      width:24px;
+      height:24px;
+      margin-right:12px;
+      margin-top:2px;
+      border:2px solid #999;
+      cursor:pointer;
+    }
+    .form-check-input:checked{
+      background-color:var(--gf-primary);
+      border-color:var(--gf-primary);
+    }
+    .form-check-label{
+      font-size:1.1rem;
+      cursor:pointer;
+      line-height:1.5;
+      display:flex;
+      align-items:flex-start;
+      gap:12px;
+    }
+
+    .gf-actions{ 
+      padding:24px 32px 32px; 
+      display:flex; 
+      justify-content:flex-start; 
+      gap:16px; 
+      flex-wrap:wrap;
+    }
+    .btn{
+      font-size:1.1rem;
+      padding:14px 32px;
+      border-radius:28px;
+      font-weight:600;
+      transition:all 0.2s ease;
+      min-width:140px;
+    }
     .btn-primary.gf{
-      background:var(--gf-primary); border-color:var(--gf-primary);
-      border-radius:24px; padding:.6rem 1.3rem; font-weight:600;
+      background:linear-gradient(135deg, var(--gf-primary), var(--gf-primary-d));
+      border:none;
+      box-shadow:0 4px 12px rgba(17,30,108,0.3);
     }
-    .btn-primary.gf:hover{ background:var(--gf-primary-d); border-color:var(--gf-primary-d); }
+    .btn-primary.gf:hover{ 
+      transform:translateY(-2px);
+      box-shadow:0 6px 16px rgba(17,30,108,0.4);
+    }
+    .btn-light{
+      background:#f5f5f5;
+      border:2px solid #ddd;
+      color:#333;
+    }
+    .btn-light:hover{
+      background:#e8e8e8;
+      border-color:#bbb;
+    }
 
-    .gf-alert{ margin-bottom:12px; border-radius:8px; }
-    .done-card{ border:1px solid #a5d6a7; background:#e8f5e9; color:#1b5e20; }
+    .gf-alert{ 
+      margin-bottom:16px; 
+      border-radius:12px; 
+      padding:16px 20px;
+      font-size:1.05rem;
+      font-weight:500;
+    }
+    .done-card{ 
+      border:2px solid #66bb6a; 
+      background:#e8f5e9; 
+      color:#1b5e20; 
+      padding:32px;
+      text-align:center;
+    }
+    .done-card h5{
+      font-size:1.8rem;
+      font-weight:700;
+      margin-bottom:12px;
+    }
+    .done-card p{
+      font-size:1.2rem;
+      margin-bottom:0;
+    }
+
+    /* Improve readability for question sections */
+    #questionsWrap > div{
+      background:#fafafa;
+      padding:24px;
+      border-radius:10px;
+      margin-bottom:20px;
+      border:1px solid #e0e0e0;
+    }
+
+    .small.text-muted{
+      font-size:1rem;
+      line-height:1.5;
+    }
+
+    .badge{
+      font-size:0.85rem;
+      padding:6px 12px;
+      font-weight:600;
+    }
+
+    /* Mobile adjustments */
+    @media (max-width: 768px){
+      body.gf-body{
+        font-size:16px;
+      }
+      .gf-header h1{
+        font-size:1.8rem;
+      }
+      .gf-card .section{
+        padding:24px 20px;
+      }
+      .gf-title{
+        font-size:1.6rem;
+      }
+      .chip{
+        min-width:48px;
+        height:48px;
+        font-size:1rem;
+      }
+      .btn{
+        font-size:1rem;
+        padding:12px 24px;
+      }
+    }
   </style>
 </head>
 <body class="gf-body">
   <div class="gf-header">
     <div class="inner">
-  <?php $isSub = (isset($_GET['sub']) && $_GET['sub']=='1') || strcasecmp($spk['program_type'],'sub')===0; ?>
-  <a class="back-link small" href="<?= $isSub ? 'sub_speaker_form.php' : 'speaker_form.php' ?>?id=<?= (int)$speaker_id ?>">&lt; Back to session</a>
+      <?php $isSub = (isset($_GET['sub']) && $_GET['sub']=='1') || strcasecmp($spk['program_type'],'sub')===0; ?>
+      <a class="back-link" href="<?= $isSub ? 'sub_speaker_form.php' : 'speaker_form.php' ?>?id=<?= (int)$speaker_id ?>">
+        <svg width="20" height="20" fill="currentColor" viewBox="0 0 16 16">
+          <path fill-rule="evenodd" d="M15 8a.5.5 0 0 0-.5-.5H2.707l3.147-3.146a.5.5 0 1 0-.708-.708l-4 4a.5.5 0 0 0 0 .708l4 4a.5.5 0 0 0 .708-.708L2.707 8.5H14.5A.5.5 0 0 0 15 8z"/>
+        </svg>
+        Back to Session
+      </a>
       <h1 class="mt-2 mb-0">Speaker Evaluation</h1>
-  <p class="mb-0"><?= e($spk['name']) ?><?= $spk['topic'] ? ' — ' . e($spk['topic']) : ($spk['title'] ? ' — ' . e($spk['title']) : '') ?></p>
+      <p class="mb-0"><?= e($spk['name']) ?><?= $spk['topic'] ? ' — ' . e($spk['topic']) : ($spk['title'] ? ' — ' . e($spk['title']) : '') ?></p>
     </div>
   </div>
 
@@ -124,16 +358,17 @@ $csrf = $_SESSION['csrf_token'];
           <input type="hidden" id="speakerId" value="<?= (int)$speaker_id ?>">
           <div id="questionsWrap"></div>
           <div class="gf-actions">
-            <button class="btn btn-primary gf" type="submit" id="submitBtn">Submit</button>
-            <a class="btn btn-light" href="<?= $isSub ? 'sub_speaker_form.php' : 'speaker_form.php' ?>?id=<?= (int)$speaker_id ?>">Cancel</a>
+            <button class="btn btn-primary gf" type="submit" id="submitBtn">Submit Evaluation</button>
+            <a class="btn btn-light" href="<?= $isSub ? 'sub_speaker_form.php' : 'speaker_form.php' ?>?id=<?= (int)$speaker_id ?>">Back to Session</a>
           </div>
         </form>
       </div>
     </div>
     <div id="doneCard" class="gf-card d-none">
       <div class="section done-card">
-        <h5 class="mb-1">Thank you!</h5>
-        <p class="mb-0">Your evaluation has been recorded.</p>
+        <h5 class="mb-1">✓ Thank You!</h5>
+        <p class="mb-3">Your evaluation has been recorded successfully.</p>
+        <a class="btn btn-primary gf" href="<?= $isSub ? 'sub_speaker_form.php' : 'speaker_form.php' ?>?id=<?= (int)$speaker_id ?>">Back to Session</a>
       </div>
     </div>
   </div>

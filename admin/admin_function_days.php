@@ -41,6 +41,130 @@ if ($res && $row = $res->fetch_assoc()) {
     $currentMode = $row['setting_value'];
 }
 
+// Simple add day (single) handler
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['add_day'])) {
+    $posted = $_POST['csrf_token'] ?? '';
+    if (!hash_equals($_SESSION['csrf_token'], (string)$posted)) { die('Invalid CSRF token'); }
+    $day_date = trim((string)($_POST['day_date'] ?? ''));
+    $label = trim((string)($_POST['label'] ?? ''));
+    if ($day_date !== '') {
+        if ($label === '') { $label = $day_date; }
+        if ($stmt = $conn->prepare("INSERT INTO function_room_days (label, day_date, is_enabled) VALUES (?,?,1)")){
+            $stmt->bind_param('ss', $label, $day_date);
+            $stmt->execute();
+            $stmt->close();
+        }
+    }
+    header('Location: admin_function_days.php');
+    exit;
+}
+
+// Simple bulk add handler (one per line: YYYY-MM-DD[, Label])
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['bulk_add'])) {
+    $posted = $_POST['csrf_token'] ?? '';
+    if (!hash_equals($_SESSION['csrf_token'], (string)$posted)) { die('Invalid CSRF token'); }
+    $bulk = (string)($_POST['bulk_days_text'] ?? '');
+    if ($bulk !== ''){
+        $lines = preg_split('/\r?\n/', $bulk);
+        if ($ins = $conn->prepare("INSERT INTO function_room_days (label, day_date, is_enabled) VALUES (?,?,1)")){
+            foreach ($lines as $i => $line) {
+                $line = trim($line); if ($line==='') continue;
+                $parts = explode(',', $line, 2);
+                $date = trim($parts[0] ?? '');
+                $lab = trim($parts[1] ?? ''); if ($lab==='') $lab = $date !== '' ? $date : ('Day '.($i+1));
+                if ($date!=='') { $ins->bind_param('ss', $lab, $date); $ins->execute(); }
+            }
+            $ins->close();
+        }
+    }
+    header('Location: admin_function_days.php');
+    exit;
+}
+
+// Handle add day(s) via simple POST (no JS/API)
+$flash = null; $flashType = 'success';
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && (isset($_POST['add_day']) || isset($_POST['add_bulk']))) {
+    // CSRF
+    $posted = $_POST['csrf_token'] ?? '';
+    if (!hash_equals($_SESSION['csrf_token'], (string)$posted)) {
+        $flash = 'Invalid CSRF token';
+        $flashType = 'danger';
+    } else {
+        $added = 0; $duplicates = 0; $errors = 0;
+        // Helper to parse date to YYYY-MM-DD
+        $parseDate = function(string $s): ?string {
+            $s = trim($s);
+            if ($s === '') return null;
+            if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $s)) return $s;
+            $ts = strtotime($s);
+            if ($ts === false) return null;
+            return date('Y-m-d', $ts);
+        };
+
+        if (isset($_POST['add_day'])) {
+            $date = $parseDate((string)($_POST['add_day_date'] ?? ''));
+            $label = trim((string)($_POST['add_day_label'] ?? ''));
+            if ($date === null) {
+                $flash = 'Please provide a valid date (YYYY-MM-DD).';
+                $flashType = 'danger';
+            } else {
+                // skip if exists
+                if ($st = $conn->prepare("SELECT id FROM function_room_days WHERE day_date=? LIMIT 1")){
+                    $st->bind_param('s', $date); $st->execute(); $st->store_result();
+                    if ($st->num_rows > 0) { $duplicates++; }
+                    else {
+                        $st->close();
+                        if ($ins = $conn->prepare("INSERT INTO function_room_days (label, day_date, is_enabled) VALUES (?,?,1)")){
+                            $lab = ($label !== '' ? $label : $date);
+                            $ins->bind_param('ss', $lab, $date);
+                            if ($ins->execute()) { $added++; }
+                            else { $errors++; }
+                            $ins->close();
+                        } else { $errors++; }
+                        // ensure $st is closed if not earlier
+                    }
+                    // Close if still open
+                    if ($st && $st->num_rows > 0) { $st->close(); }
+                } else { $errors++; }
+                $flash = "Added $added, duplicates $duplicates, errors $errors.";
+                $flashType = ($errors>0 && $added===0)?'danger':'success';
+            }
+        }
+
+        if (isset($_POST['add_bulk'])) {
+            $bulk = trim((string)($_POST['bulk_days_text'] ?? ''));
+            if ($bulk === '') { $flash = 'Please enter at least one line to bulk add.'; $flashType='danger'; }
+            else {
+                $lines = preg_split('/\r?\n/', $bulk);
+                $i=1;
+                foreach ($lines as $line) {
+                    $line = trim($line); if ($line==='') continue;
+                    $parts = array_map('trim', explode(',', $line, 2));
+                    $date = $parseDate($parts[0] ?? ''); if ($date===null) { $errors++; continue; }
+                    $label = $parts[1] ?? ('Day '.$i);
+                    if ($st = $conn->prepare("SELECT id FROM function_room_days WHERE day_date=? LIMIT 1")){
+                        $st->bind_param('s', $date); $st->execute(); $st->store_result();
+                        if ($st->num_rows > 0) { $duplicates++; $st->close(); $i++; continue; }
+                        $st->close();
+                    }
+                    if ($ins = $conn->prepare("INSERT INTO function_room_days (label, day_date, is_enabled) VALUES (?,?,1)")){
+                        $ins->bind_param('ss', $label, $date);
+                        if ($ins->execute()) { $added++; } else { $errors++; }
+                        $ins->close();
+                    } else { $errors++; }
+                    $i++;
+                }
+                $flash = "Added $added, duplicates $duplicates, errors $errors.";
+                $flashType = ($errors>0 && $added===0)?'danger':'success';
+            }
+        }
+    }
+    // After processing, refresh days list to reflect changes
+    $days = [];
+    if ($stmt = $conn->prepare($sql)) {
+        $stmt->execute(); $res = $stmt->get_result(); $days = $res->fetch_all(MYSQLI_ASSOC); $stmt->close();
+    }
+}
 // Fetch days
 $days = [];
 $sql = "SELECT id, label, day_date, is_enabled FROM function_room_days ORDER BY day_date ASC";
@@ -256,6 +380,23 @@ if ($stmt = $conn->prepare($sql)) {
             color: #6b7280;
         }
     </style>
+        <?php
+        // Compute API URLs robustly for subfolder deployments
+        $scriptDir = rtrim(dirname($_SERVER['SCRIPT_NAME'] ?? ''), '/');
+        $parentDir = preg_replace('#/[^/]+$#', '', $scriptDir);
+        if ($parentDir === '') { $parentDir = '/'; }
+        $apiToggleUrl = rtrim($parentDir, '/') . '/api/toggle_day.php';
+            ?>
+            <script>
+                const API_TOGGLE_DAY_URL = <?= json_encode($apiToggleUrl) ?>;
+                const CSRF_TOKEN = <?= json_encode($_SESSION['csrf_token']) ?>;
+            </script>
+        ?>
+        <script>
+            const API_TOGGLE_DAY_URL = <?= json_encode($apiToggleUrl) ?>;
+            const API_ADD_DAYS_URL = <?= json_encode($apiAddDaysUrl) ?>;
+            const CSRF_TOKEN = <?= json_encode($_SESSION['csrf_token']) ?>;
+        </script>
 </head>
 <body>
     <div class="container-fluid">
@@ -273,36 +414,43 @@ if ($stmt = $conn->prepare($sql)) {
             </div>
             
             <div class="p-4">
+                                <?php if ($flash): ?>
+                                    <div class="alert alert-<?= $flashType === 'danger' ? 'danger' : 'success' ?>">
+                                        <?= htmlspecialchars($flash) ?>
+                                    </div>
+                                <?php endif; ?>
 
                 <!-- Mode Selection Card -->
                 <div class="card mode-card mb-4">
                     <div class="card-header">
                         <div class="d-flex align-items-center">
-                            <i class="bi bi-gear-fill me-2 text-primary fs-5"></i>
-                            <h5 class="card-title mb-0">Access Mode Configuration</h5>
-                            <span class="badge status-<?= $currentMode === 'admin_only' ? 'enabled' : 'disabled' ?> ms-auto">
-                                <?= $currentMode === 'admin_only' ? 'Admin Only' : 'Date Strict' ?>
-                            </span>
-                        </div>
-                    </div>
-                    <div class="card-body">
-                        <div class="row">
-                            <div class="col-md-8">
-                                <form method="post" class="d-flex gap-3 align-items-end">
-                                    <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($_SESSION['csrf_token']) ?>">
-                                    <div class="flex-grow-1">
-                                        <label class="form-label fw-semibold">
-                                            <i class="bi bi-shield-check me-1 text-info"></i>Mode Selection
-                                        </label>
-                                        <select name="mode" class="form-select">
-                                            <option value="date_strict" <?= $currentMode === 'date_strict' ? 'selected' : '' ?>>
-                                                📅 Date Strict Mode
-                                            </option>
-                                            <option value="admin_only" <?= $currentMode === 'admin_only' ? 'selected' : '' ?>>
-                                                🔒 Admin Only Mode
-                                            </option>
-                                        </select>
-                                    </div>
+                                            <form method="post" class="row g-3 align-items-end">
+                                                <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($_SESSION['csrf_token']) ?>">
+                                                <input type="hidden" name="add_day" value="1">
+                                                <div class="col-md-4">
+                                                    <label class="form-label">Date</label>
+                                                    <input type="date" name="day_date" class="form-control" required />
+                                                </div>
+                                                <div class="col-md-5">
+                                                    <label class="form-label">Label (optional)</label>
+                                                    <input type="text" name="label" class="form-control" placeholder="e.g., Day 1" />
+                                                </div>
+                                                <div class="col-md-3">
+                                                    <button type="submit" class="btn btn-gradient-success w-100"><i class="bi bi-plus-lg me-1"></i>Add Day</button>
+                                                </div>
+                                            </form>
+                                            <hr class="my-4">
+                                            <form method="post" class="row g-3">
+                                                <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($_SESSION['csrf_token']) ?>">
+                                                <input type="hidden" name="bulk_add" value="1">
+                                                <div class="col-12">
+                                                    <label class="form-label">Bulk add (one per line: YYYY-MM-DD[, Label])</label>
+                                                    <textarea name="bulk_days_text" class="form-control" rows="4" placeholder="2025-10-01, Day 1&#10;2025-10-02, Day 2&#10;2025-10-03"></textarea>
+                                                </div>
+                                                <div class="col-md-3 ms-auto">
+                                                    <button type="submit" class="btn btn-outline-primary w-100"><i class="bi bi-upload me-1"></i>Add Multiple</button>
+                                                </div>
+                                            </form>
                                     <div>
                                         <button type="submit" class="btn btn-gradient-primary">
                                             <i class="bi bi-check-lg me-2"></i>Update Mode
@@ -391,6 +539,43 @@ if ($stmt = $conn->prepare($sql)) {
                         <?php endif; ?>
                     </div>
                 </div>
+
+                                <!-- Add Day(s) Card -->
+                                                <div class="card mt-4">
+                                    <div class="card-header">
+                                        <div class="d-flex align-items-center">
+                                            <i class="bi bi-calendar-plus me-2 text-primary fs-5"></i>
+                                            <h5 class="card-title mb-0">Add Day(s)</h5>
+                                        </div>
+                                    </div>
+                                    <div class="card-body">
+                                                        <form method="post" class="row g-3 align-items-end">
+                                                            <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($_SESSION['csrf_token']) ?>">
+                                                            <div class="col-md-4">
+                                                                <label class="form-label">Date</label>
+                                                                <input type="date" name="add_day_date" class="form-control" required />
+                                                            </div>
+                                                            <div class="col-md-5">
+                                                                <label class="form-label">Label (optional)</label>
+                                                                <input type="text" name="add_day_label" class="form-control" placeholder="e.g., Day 1" />
+                                                            </div>
+                                                            <div class="col-md-3">
+                                                                <button name="add_day" value="1" class="btn btn-gradient-success w-100"><i class="bi bi-plus-lg me-1"></i>Add Day</button>
+                                                            </div>
+                                                        </form>
+                                        <hr class="my-4">
+                                                        <form method="post" class="row g-3">
+                                                            <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($_SESSION['csrf_token']) ?>">
+                                                            <div class="col-12">
+                                                                <label class="form-label">Bulk add (one per line: YYYY-MM-DD[, Label])</label>
+                                                                <textarea name="bulk_days_text" class="form-control" rows="4" placeholder="2025-10-01, Day 1&#10;2025-10-02, Day 2&#10;2025-10-03"></textarea>
+                                                            </div>
+                                                            <div class="col-md-3 ms-auto">
+                                                                <button name="add_bulk" value="1" class="btn btn-outline-primary w-100"><i class="bi bi-upload me-1"></i>Add Multiple</button>
+                                                            </div>
+                                                        </form>
+                                    </div>
+                                </div>
                 
                 <!-- Help Card -->
                 <div class="card mt-4">
@@ -420,7 +605,6 @@ if ($stmt = $conn->prepare($sql)) {
 
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
 <script>
-const CSRF_TOKEN = <?= json_encode($_SESSION['csrf_token']) ?>;
 
 // Enhanced day toggle functionality with visual feedback
 document.querySelectorAll('.toggle-day').forEach(cb => {
@@ -437,7 +621,10 @@ document.querySelectorAll('.toggle-day').forEach(cb => {
         // Add loading state
         listItem.style.opacity = '0.6';
         
-        fetch('../api/toggle_day.php', {
+        // Try primary then fallback
+        const urlPrimary = new URL(API_TOGGLE_DAY_URL, window.location.origin).toString();
+        const urlFallback = new URL('../api/toggle_day.php', window.location.href).toString();
+        fetch(urlPrimary, {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
@@ -450,6 +637,13 @@ document.querySelectorAll('.toggle-day').forEach(cb => {
                         csrf_token: CSRF_TOKEN
                     })
                 })
+        .then(async r => {
+            if(!r.ok){
+              // try fallback
+              return fetch(urlFallback, { method:'POST', headers:{'Content-Type':'application/json','X-CSRF-Token':CSRF_TOKEN}, cache:'no-store', body: JSON.stringify({day_id:dayId,is_enabled:isEnabled,csrf_token:CSRF_TOKEN}) });
+            }
+            return r;
+        })
         .then(r => r.json())
         .then(json => {
             if (json.success) {
@@ -545,6 +739,8 @@ document.addEventListener('DOMContentLoaded', function() {
         }, index * 100);
     });
 });
+
+// (Form-based add implemented; no JS required for adding days.)
 </script>
 </body>
 </html>

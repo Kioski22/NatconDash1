@@ -74,7 +74,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $errors[] = 'Invalid CSRF token.';
     } else {
         $action = $_POST['action'] ?? 'save';
-    if ($action === 'save_rules') {
+  if ($action === 'save_rules') {
       // Global controls (master enable + global activation window)
       $enabled = isset($_POST['cert_generation_enabled']) ? '1' : '0';
       $autoDate = trim((string)($_POST['cert_auto_enable_date'] ?? ''));
@@ -89,7 +89,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       $subRequireEval = isset($_POST['sub_cert_require_eval']) ? '1' : '0';
       $subMinScore    = isset($_POST['sub_cert_min_score']) ? max(0, min(100, (int)$_POST['sub_cert_min_score'])) : 0;
 
-      $ok = true;
+  // Attendance certificate rules
+  $attMinDays = isset($_POST['attendance_min_days_required']) ? max(0,(int)$_POST['attendance_min_days_required']) : 0;
+  $attPastOnly = isset($_POST['attendance_require_past_enabled_only']) ? '1' : '0';
+  $attStrict = isset($_POST['attendance_enforce_strict']) ? '1' : '0';
+
+  $ok = true;
       // Save global controls
       $ok = $ok && set_setting($db, 'cert_generation_enabled', $enabled);
       $ok = $ok && set_setting($db, 'cert_auto_enable_date', $autoDate);
@@ -108,7 +113,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       $ok = $ok && set_setting($db, 'cert_require_eval', $mainRequireEval);
       $ok = $ok && set_setting($db, 'cert_min_score', (string)$mainMinScore);
 
-      if ($ok) $success = 'Eligibility rules saved.'; else $errors[] = 'Failed to save rules.';
+  // Save attendance rules
+  $ok = $ok && set_setting($db, 'attendance_min_days_required', (string)$attMinDays);
+  $ok = $ok && set_setting($db, 'attendance_require_past_enabled_only', $attPastOnly);
+  $ok = $ok && set_setting($db, 'attendance_enforce_strict', $attStrict);
+
+  if ($ok) $success = 'Eligibility rules saved.'; else $errors[] = 'Failed to save rules.';
       $tab = 'rules';
     } elseif ($action === 'delete_cert') {
       $cid = isset($_POST['cert_id']) ? (int)$_POST['cert_id'] : 0;
@@ -174,6 +184,11 @@ $main_cert_min_score    = (int)(get_setting($db, 'main_cert_min_score', (string)
 $sub_cert_require_quiz  = (get_setting($db, 'sub_cert_require_quiz', $cert_require_quiz ? '1' : '0') === '1');
 $sub_cert_require_eval  = (get_setting($db, 'sub_cert_require_eval', $cert_require_eval ? '1' : '0') === '1');
 $sub_cert_min_score     = (int)(get_setting($db, 'sub_cert_min_score', (string)$cert_min_score) ?: $cert_min_score);
+
+// Attendance rules
+$attendance_min_days_required = (int)(get_setting($db, 'attendance_min_days_required', '0') ?: 0);
+$attendance_require_past_enabled_only = (get_setting($db, 'attendance_require_past_enabled_only', '1') === '1');
+$attendance_enforce_strict = (get_setting($db, 'attendance_enforce_strict', '0') === '1');
 
 // Preload certificate templates list (for main tab only)
 $certificate_rows = [];
@@ -856,6 +871,40 @@ if ($tab === '') {
                   <input class="form-check-input" type="checkbox" id="sub_require_eval" name="sub_cert_require_eval" <?= $sub_cert_require_eval ? 'checked' : '' ?>>
                   <label class="form-check-label fw-semibold" for="sub_require_eval">
                     <?= $sub_cert_require_eval ? 'Required' : 'Optional' ?> — Speaker Evaluations
+                  </label>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Section: Attendance Certificate Rules -->
+          <div class="setting-item">
+            <div class="setting-label">
+              <i class="bi bi-person-check text-info"></i>
+              Attendance Certificates — Rules
+            </div>
+            <div class="setting-description">
+              Control eligibility for Main Program Attendance certificates across days.
+            </div>
+            <div class="row g-3">
+              <div class="col-md-4">
+                <label class="form-label fw-semibold">Minimum Required Days</label>
+                <input type="number" name="attendance_min_days_required" class="form-control" min="0" value="<?= (int)$attendance_min_days_required ?>" placeholder="0">
+                <div class="form-text">0 means follow strict rule (all required days) unless overridden below.</div>
+              </div>
+              <div class="col-md-4 d-flex align-items-end">
+                <div class="form-check form-switch">
+                  <input class="form-check-input" type="checkbox" id="attendance_require_past_enabled_only" name="attendance_require_past_enabled_only" <?= $attendance_require_past_enabled_only ? 'checked' : '' ?>>
+                  <label class="form-check-label fw-semibold" for="attendance_require_past_enabled_only">
+                    Past/Enabled Days Only
+                  </label>
+                </div>
+              </div>
+              <div class="col-md-4 d-flex align-items-end">
+                <div class="form-check form-switch">
+                  <input class="form-check-input" type="checkbox" id="attendance_enforce_strict" name="attendance_enforce_strict" <?= $attendance_enforce_strict ? 'checked' : '' ?>>
+                  <label class="form-check-label fw-semibold" for="attendance_enforce_strict">
+                    Enforce Strict (ignore min days)
                   </label>
                 </div>
               </div>

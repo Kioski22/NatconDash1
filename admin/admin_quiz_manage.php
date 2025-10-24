@@ -63,6 +63,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       $questions_json = trim($_POST['questions'] ?? '[]');
       $options_json   = trim($_POST['options'] ?? '[]');
   $answers_json   = trim($_POST['answers'] ?? '[]');
+      $passing_score = isset($_POST['passing_score']) && $_POST['passing_score'] !== '' ? (int)$_POST['passing_score'] : null;
 
       if ($speaker_id <= 0) $errors[] = 'Select a speaker.';
       $questions = json_decode($questions_json, true);
@@ -73,8 +74,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       if (!is_array($options)) $errors[] = 'Options invalid.';
       if (!is_array($answers)) $errors[] = 'Answers invalid.';
 
-      // validate structure
+  // validate structure
       $nq = is_array($questions) ? count($questions) : 0;
+      // Validate passing score as required-correct count (0..num questions)
+      if (!is_null($passing_score)) {
+        if ($passing_score < 0) $errors[] = 'Passing score cannot be negative.';
+        if ($nq > 0 && $passing_score > $nq) $errors[] = 'Passing score cannot exceed the total number of questions.';
+      }
+
+      // Ensure quizzes.passing_score exists (migration fallback)
+      $db->query("ALTER TABLE quizzes ADD COLUMN IF NOT EXISTS passing_score INT(3) UNSIGNED NULL DEFAULT NULL");
       if ($nq > 0) {
         if (!is_array($options) || count($options) !== $nq) $errors[] = 'Options length must match questions length.';
         if (!is_array($answers) || count($answers) !== $nq) $errors[] = 'Answers length must match questions length.';
@@ -138,7 +147,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
       if (empty($errors)) {
         if ($action === 'add') {
-          $stmt = $db->prepare("INSERT INTO quizzes (speaker_id, room_id, day_id, questions, options, answers) VALUES (?, ?, ?, ?, ?, ?)");
+          $stmt = $db->prepare("INSERT INTO quizzes (speaker_id, room_id, day_id, questions, options, answers, passing_score) VALUES (?, ?, ?, ?, ?, ?, ?)");
           if ($stmt) {
             // Normalize answers to array-of-arrays (for MCQ) or null for paragraph
             $normAns = [];
@@ -153,7 +162,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $qj = json_encode($questions, JSON_UNESCAPED_UNICODE);
             $oj = json_encode($options, JSON_UNESCAPED_UNICODE);
             $aj = json_encode($normAns, JSON_UNESCAPED_UNICODE);
-            $stmt->bind_param('iiisss', $speaker_id, $room_id, $day_id, $qj, $oj, $aj);
+            $stmt->bind_param('iiisssi', $speaker_id, $room_id, $day_id, $qj, $oj, $aj, $passing_score);
             if ($stmt->execute()) $success = 'Quiz created.';
             else $errors[] = ($db->errno == 1062) ? 'A quiz already exists for this speaker.' : ('Insert failed: '.$stmt->error);
             $stmt->close();
@@ -164,7 +173,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
           $id = isset($_POST['id']) ? (int)$_POST['id'] : 0;
           if ($id <= 0) $errors[] = 'Invalid quiz id.';
           if (empty($errors)) {
-            $stmt = $db->prepare("UPDATE quizzes SET speaker_id=?, room_id=?, day_id=?, questions=?, options=?, answers=? WHERE id=? LIMIT 1");
+            $stmt = $db->prepare("UPDATE quizzes SET speaker_id=?, room_id=?, day_id=?, questions=?, options=?, answers=?, passing_score=? WHERE id=? LIMIT 1");
             if ($stmt) {
               $normAns = [];
               for ($i=0;$i<count($questions);$i++) {
@@ -178,7 +187,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
               $qj = json_encode($questions, JSON_UNESCAPED_UNICODE);
               $oj = json_encode($options, JSON_UNESCAPED_UNICODE);
               $aj = json_encode($normAns, JSON_UNESCAPED_UNICODE);
-              $stmt->bind_param('iiisssi', $speaker_id, $room_id, $day_id, $qj, $oj, $aj, $id);
+              $stmt->bind_param('iiisssii', $speaker_id, $room_id, $day_id, $qj, $oj, $aj, $passing_score, $id);
               if ($stmt->execute()) $success = 'Quiz updated.';
               else $errors[] = 'Update failed: '.$stmt->error;
               $stmt->close();
@@ -844,6 +853,7 @@ function pretty_count($jsonStr) {
                     <th><i class="bi bi-calendar me-1"></i>Day</th>
                     <th><i class="bi bi-door-open me-1"></i>Room</th>
                     <th><i class="bi bi-question-circle me-1"></i>Questions</th>
+                    <th><i class="bi bi-flag me-1"></i>Passing</th>
                     <th><i class="bi bi-clock me-1"></i>Created</th>
                     <th class="actions-header"><i class="bi bi-gear me-1"></i>Actions</th>
                   </tr>
@@ -866,6 +876,13 @@ function pretty_count($jsonStr) {
                       <td><?= e($q['day_label'] ?: '-') ?></td>
                       <td><?= e($q['room_name'] ?: '-') ?></td>
                       <td><span class="badge badge-soft"><?= pretty_count($q['questions']) ?></span></td>
+                      <td>
+                        <?php if (isset($q['passing_score']) && $q['passing_score'] !== null): ?>
+                          <span class="badge bg-light text-dark"><?= (int)$q['passing_score'] ?>/<?= pretty_count($q['questions']) ?></span>
+                        <?php else: ?>
+                          <span class="text-muted small">–</span>
+                        <?php endif; ?>
+                      </td>
                       <td><small><?= date('M j, Y', strtotime($q['created_at'])) ?></small></td>
                       <td class="actions-cell">
                         <div class="d-flex flex-column flex-md-row flex-wrap gap-2 justify-content-center align-items-stretch">
@@ -1002,6 +1019,23 @@ function pretty_count($jsonStr) {
               <?php endforeach; ?>
             </select>
             <div class="form-text text-center mt-1">Speakers already having a quiz (including legacy quiz questions) are hidden.</div>
+          </div>
+
+          <!-- Passing Score (count) -->
+          <div class="mb-4">
+            <label class="form-label fw-bold text-center d-block">
+              <i class="bi bi-flag me-2"></i>
+              Passing Score (optional)
+            </label>
+            <div class="row justify-content-center">
+              <div class="col-sm-6">
+                <div class="input-group">
+                  <input type="number" min="0" step="1" name="passing_score" class="form-control text-center" placeholder="e.g., 3 (out of N)" value="<?= isset($edit['passing_score']) ? (int)$edit['passing_score'] : '' ?>">
+                  <span class="input-group-text">correct</span>
+                </div>
+                <div class="form-text text-center">Only save attempts that get at least this many answers correct. Leave blank to allow saving any score.</div>
+              </div>
+            </div>
           </div>
 
           <!-- Hidden JSON fields -->

@@ -30,10 +30,11 @@ if ($speaker_id <= 0) { http_response_code(400); echo "Invalid speaker."; exit; 
 $speakerName = 'Speaker';
 $speakerTitle = '';
 $speakerTopic = '';
-if ($st = $db->prepare("SELECT name, title, topic FROM speakers WHERE id = ? LIMIT 1")) {
-  $st->bind_param('i', $speakerId);
+$programType = '';
+if ($st = $db->prepare("SELECT name, title, topic, program_type FROM speakers WHERE id = ? LIMIT 1")) {
+  $st->bind_param('i', $speaker_id);
   $st->execute();
-  $st->bind_result($speakerName, $speakerTitle, $speakerTopic);
+  $st->bind_result($speakerName, $speakerTitle, $speakerTopic, $programType);
   $st->fetch();
   $st->close();
 }
@@ -243,7 +244,8 @@ if ($st = $db->prepare("SELECT name, title, topic FROM speakers WHERE id = ? LIM
       transform: translateX(4px);
     }
 
-    .mcq-option input[type="radio"] {
+    .mcq-option input[type="radio"],
+    .mcq-option input[type="checkbox"] {
       width: 20px;
       height: 20px;
       margin-right: 12px;
@@ -325,6 +327,22 @@ if ($st = $db->prepare("SELECT name, title, topic FROM speakers WHERE id = ? LIM
       transition: all 0.3s ease;
       cursor: pointer;
       min-width: 200px;
+    }
+
+    .retry-btn {
+      margin-top: 0.75rem;
+      border-radius: 12px;
+      border: 2px solid rgba(100,116,139,0.35);
+      background: rgba(255,255,255,0.65);
+      color: #334155;
+      padding: 0.6rem 1.25rem;
+      font-weight: 600;
+      transition: all 0.2s ease;
+    }
+
+    .retry-btn:hover {
+      background: rgba(255,255,255,0.9);
+      transform: translateY(-1px);
     }
 
     .submit-btn:hover:not(:disabled) {
@@ -463,18 +481,110 @@ if ($st = $db->prepare("SELECT name, title, topic FROM speakers WHERE id = ? LIM
       }
       
       .question-header {
-        flex-direction: column;
-        align-items: flex-start;
-        gap: 0.5rem;
+        /* Keep desktop layout - don't stack */
+        flex-direction: row;
+        align-items: center;
+        gap: 1rem;
+      }
+      
+      .question-number {
+        /* Keep same size and position */
+        flex-shrink: 0;
       }
       
       .question-text {
-        font-size: 1.1rem;
+        font-size: 1.05rem;
+        flex: 1;
       }
       
       .submit-btn {
         padding: 0.8rem 2rem;
         font-size: 1rem;
+      }
+    }
+
+    /* Dark Mode Support */
+  @media (prefers-color-scheme: dark) {
+      body, .quiz-container, .quiz-card {
+        background-color: #1a1a2e !important;
+        color: #e2e8f0 !important;
+      }
+      
+      .quiz-header {
+        background: linear-gradient(135deg, #2d3561, #1f2544) !important;
+      }
+      
+      .quiz-title, .quiz-subtitle {
+        color: #ffffff !important;
+      }
+      
+      .question-container {
+        background: rgba(255, 255, 255, 0.05) !important;
+        border-color: rgba(255, 255, 255, 0.1) !important;
+      }
+      
+      .question-text {
+        color: #f1f5f9 !important;
+      }
+      
+      .mcq-option input[type="radio"],
+      .mcq-option input[type="checkbox"] {
+        /* Force visible outline for dark mode */
+        filter: invert(1) hue-rotate(180deg);
+        border: 2px solid #ffffff;
+        background-color: #ffffff;
+      }
+      
+      .mcq-option input[type="radio"]:checked,
+      .mcq-option input[type="checkbox"]:checked {
+        filter: invert(0) hue-rotate(0deg);
+        background-color: var(--primary);
+        border-color: var(--primary);
+      }
+      
+      .mcq-option {
+        background: rgba(255, 255, 255, 0.08) !important;
+        border-color: rgba(255, 255, 255, 0.3) !important;
+      }
+      
+      .mcq-option:hover {
+        background: rgba(255, 255, 255, 0.15) !important;
+        border-color: rgba(255, 255, 255, 0.4) !important;
+      }
+      
+      .mcq-option.selected {
+        background: linear-gradient(135deg, rgba(79, 70, 229, 0.4), rgba(139, 92, 246, 0.4)) !important;
+        border-color: var(--primary) !important;
+      }
+      
+      .mcq-option label {
+        color: #f1f5f9 !important;
+        text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
+      }
+      
+      /* Ensure text inside label is also visible */
+      .mcq-option label * {
+        color: #f1f5f9 !important;
+      }
+      
+      .paragraph-container {
+        background: rgba(255, 255, 255, 0.05) !important;
+        border-color: rgba(255, 255, 255, 0.2) !important;
+      }
+      
+      .paragraph-textarea {
+        background: rgba(255, 255, 255, 0.1) !important;
+        color: #f1f5f9 !important;
+        border-color: rgba(255, 255, 255, 0.3) !important;
+      }
+      
+      .paragraph-textarea:focus {
+        background: rgba(255, 255, 255, 0.15) !important;
+        border-color: var(--info) !important;
+      }
+      
+      .paragraph-textarea::placeholder {
+        color: #94a3b8;
       }
     }
 
@@ -510,7 +620,7 @@ if ($st = $db->prepare("SELECT name, title, topic FROM speakers WHERE id = ? LIM
       <div class="d-flex justify-content-between align-items-center mb-3">
         <div class="flex-grow-1">
           <h1 class="quiz-title">Interactive Quiz</h1>
-          <p class="quiz-subtitle"><?= e($speakerName) ?><?= ($speakerTopic ? ' — ' . e($speakerTopic) : ($speakerTitle ? ' — ' . e($speakerTitle) : '')) ?></p>
+          <p class="quiz-subtitle"><?= e(strtoupper($speakerName)) ?></p>
         </div>
         <a class="back-button" href="speaker_form.php?id=<?= (int)$speaker_id ?>">
           <i class="bi bi-arrow-left"></i>
@@ -549,6 +659,11 @@ if ($st = $db->prepare("SELECT name, title, topic FROM speakers WHERE id = ? LIM
               <i class="bi bi-check-circle-fill me-2"></i>
               Submit Answers
             </button>
+            <div>
+              <button type="button" id="retryBtn" class="retry-btn">
+                <i class="bi bi-arrow-counterclockwise me-1"></i> Retry (Clear Answers)
+              </button>
+            </div>
           </div>
         </form>
       </div>
@@ -565,6 +680,7 @@ if ($st = $db->prepare("SELECT name, title, topic FROM speakers WHERE id = ? LIM
     </div>
   </div>
 
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
   <script>
   const speakerId = <?= (int)$speaker_id ?>;
   const statusEl = document.getElementById('status');
@@ -576,6 +692,50 @@ if ($st = $db->prepare("SELECT name, title, topic FROM speakers WHERE id = ? LIM
   const resultCard = document.getElementById('resultCard');
   const resultText = document.getElementById('resultText');
   const progressBar = document.getElementById('progressBar');
+  const retryBtn = document.getElementById('retryBtn');
+
+  // Modal: quiz result
+  const modalHtml = `
+    <div class="modal fade" id="quizResultModal" tabindex="-1" aria-hidden="true">
+      <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content" style="border-radius:16px;">
+          <div class="modal-header" style="border:none;">
+            <h5 class="modal-title text-dark" id="quizResultTitle">Quiz Result</h5>
+            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+          </div>
+          <div class="modal-body text-dark">
+            <div class="d-flex align-items-center gap-3 mb-2">
+              <i id="quizResultIcon" class="bi bi-info-circle" style="font-size:1.6rem;"></i>
+              <div>
+                <div id="quizResultSummary" class="fw-bold"></div>
+                <div id="quizResultDetail" class="text-muted small"></div>
+              </div>
+            </div>
+          </div>
+          <div class="modal-footer" style="border:none;">
+            <a id="backLink" href="speaker_form.php?id=<?= (int)$speaker_id ?>" class="btn btn-outline-secondary">
+              <i class="bi bi-arrow-left me-1"></i> Back to Speaker
+            </a>
+            <a id="modalBackProgramsBtn" href="programs.php" class="btn btn-outline-primary d-none">
+              <i class="bi bi-arrow-left me-1"></i> Back to Speakers
+            </a>
+            <button type="button" class="btn btn-primary" id="modalRetryBtn">
+              <i class="bi bi-arrow-counterclockwise me-1"></i> Retry
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>`;
+  document.body.insertAdjacentHTML('beforeend', modalHtml);
+  const quizResultModal = new bootstrap.Modal(document.getElementById('quizResultModal'));
+  const quizResultTitle = document.getElementById('quizResultTitle');
+  const quizResultSummary = document.getElementById('quizResultSummary');
+  const quizResultDetail = document.getElementById('quizResultDetail');
+  const quizResultIcon = document.getElementById('quizResultIcon');
+  const modalRetryBtn = document.getElementById('modalRetryBtn');
+  const modalBackProgramsBtn = document.getElementById('modalBackProgramsBtn');
+  const programType = <?= json_encode(strtolower((string)$programType)) ?>; // 'main' or 'sub' (expected)
+  let listHref = 'programs.php';
 
   let totalQuestions = 0;
 
@@ -602,10 +762,13 @@ if ($st = $db->prepare("SELECT name, title, topic FROM speakers WHERE id = ? LIM
     
     const answered = Array.from(questionsWrap.querySelectorAll('.question-container')).filter(q => {
       const radios = q.querySelectorAll('input[type="radio"]');
+      const checks = q.querySelectorAll('input[type="checkbox"]');
       const textarea = q.querySelector('textarea');
-      
+
       if (radios.length > 0) {
         return Array.from(radios).some(r => r.checked);
+      } else if (checks.length > 0) {
+        return Array.from(checks).some(c => c.checked);
       } else if (textarea) {
         return textarea.value.trim() !== '';
       }
@@ -624,8 +787,9 @@ if ($st = $db->prepare("SELECT name, title, topic FROM speakers WHERE id = ? LIM
 
   async function loadQuiz() {
     try {
-      const res = await fetch('../api/quiz_get.php?speaker_id=' + encodeURIComponent(speakerId), { 
-        credentials: 'same-origin' 
+      const res = await fetch('../api/quiz_get.php?speaker_id=' + encodeURIComponent(speakerId) + '&ts=' + Date.now(), { 
+        credentials: 'same-origin',
+        cache: 'no-store'
       });
       
       if (res.status === 404) { 
@@ -655,6 +819,16 @@ if ($st = $db->prepare("SELECT name, title, topic FROM speakers WHERE id = ? LIM
       }
       
       const data = await res.json();
+      // Build list (speakers) URL based on program type and day
+      const dayId = data?.day_id;
+      const listPage = (programType === 'sub') ? 'sub_program_day.php' : 'main_program_day.php';
+      if (dayId) {
+        listHref = `${listPage}?day_id=${encodeURIComponent(dayId)}`;
+        modalBackProgramsBtn.setAttribute('href', listHref);
+      } else {
+        listHref = 'programs.php';
+        modalBackProgramsBtn.setAttribute('href', listHref);
+      }
       renderQuiz(data);
     } catch (e) {
       loadingEl.innerHTML = `
@@ -671,7 +845,7 @@ if ($st = $db->prepare("SELECT name, title, topic FROM speakers WHERE id = ? LIM
 
   function renderQuiz(data) {
     loadingEl.classList.add('d-none');
-    const { quiz_id, questions, options } = data || {};
+  const { quiz_id, questions, options, multiple } = data || {};
     
     if (!quiz_id || !Array.isArray(questions) || !Array.isArray(options) || questions.length === 0) {
       showStatus('Quiz is not configured correctly.', 'danger');
@@ -704,6 +878,7 @@ if ($st = $db->prepare("SELECT name, title, topic FROM speakers WHERE id = ? LIM
         // MCQ
         const mcqContainer = document.createElement('div');
         mcqContainer.className = 'mcq-options';
+        const isMulti = Array.isArray(multiple) ? !!multiple[i] : false;
         
         opts.forEach((opt, idx) => {
           const id = `q${i}_opt${idx}`;
@@ -711,22 +886,27 @@ if ($st = $db->prepare("SELECT name, title, topic FROM speakers WHERE id = ? LIM
           optionDiv.className = 'mcq-option';
           optionDiv.innerHTML = `
             <label for="${id}">
-              <input class="form-check-input" type="radio" name="q${i}" id="${id}" value="${idx}">
+              <input class="form-check-input" type="${isMulti ? 'checkbox' : 'radio'}" name="q${i}${isMulti ? '[]' : ''}" id="${id}" value="${idx}">
               ${escapeHtml(String(opt ?? ''))}
             </label>
           `;
           
           // Add click handler for visual feedback
-          const radio = optionDiv.querySelector('input');
+          const inputEl = optionDiv.querySelector('input');
           const label = optionDiv.querySelector('label');
           
-          radio.addEventListener('change', () => {
-            // Remove selected class from siblings
-            mcqContainer.querySelectorAll('.mcq-option').forEach(opt => {
-              opt.classList.remove('selected');
-            });
-            // Add selected class to this option
-            optionDiv.classList.add('selected');
+          inputEl.addEventListener('change', () => {
+            if (isMulti) {
+              // Toggle only this option based on checkbox state
+              if (inputEl.checked) optionDiv.classList.add('selected');
+              else optionDiv.classList.remove('selected');
+            } else {
+              // Single-select: clear others, set this
+              mcqContainer.querySelectorAll('.mcq-option').forEach(opt => {
+                opt.classList.remove('selected');
+              });
+              if (inputEl.checked) optionDiv.classList.add('selected');
+            }
             updateProgress();
           });
           
@@ -755,6 +935,13 @@ if ($st = $db->prepare("SELECT name, title, topic FROM speakers WHERE id = ? LIM
     
     quizForm.classList.remove('d-none');
     updateProgress();
+
+    // Retry (clear all answers)
+    retryBtn?.addEventListener('click', (e) => {
+      e.preventDefault();
+      clearAnswers();
+      hideStatus();
+    });
   }
 
   quizForm.addEventListener('submit', async (e) => {
@@ -766,7 +953,8 @@ if ($st = $db->prepare("SELECT name, title, topic FROM speakers WHERE id = ? LIM
     const answers = [];
     
     for (let i = 0; i < qGroups.length; i++) {
-      const radios = qGroups[i].querySelectorAll(`input[name="q${i}"]`);
+      const radios = qGroups[i].querySelectorAll(`input[type="radio"][name="q${i}"]`);
+      const checks = qGroups[i].querySelectorAll(`input[type="checkbox"][name="q${i}[]"]`);
       
       if (radios.length > 0) {
         const chosen = Array.from(radios).find(r => r.checked);
@@ -776,6 +964,14 @@ if ($st = $db->prepare("SELECT name, title, topic FROM speakers WHERE id = ? LIM
           return; 
         }
         answers.push(parseInt(chosen.value, 10));
+      } else if (checks.length > 0) {
+        const selected = Array.from(checks).filter(c => c.checked).map(c => parseInt(c.value, 10));
+        if (selected.length === 0) {
+          showStatus(`Please select at least one option for question ${i+1}.`, 'warning');
+          qGroups[i].scrollIntoView({ behavior: 'smooth', block: 'center' });
+          return;
+        }
+        answers.push(selected);
       } else {
         const ta = qGroups[i].querySelector('textarea');
         const txt = ta ? ta.value.trim() : '';
@@ -802,8 +998,7 @@ if ($st = $db->prepare("SELECT name, title, topic FROM speakers WHERE id = ? LIM
       const fd = new FormData();
       fd.append('quiz_id', document.getElementById('quiz_id').value);
       fd.append('speaker_id', document.getElementById('speaker_id').value);
-      fd.append('answers_json', JSON.stringify(answers));
-      answers.forEach(a => fd.append('answers[]', typeof a === 'number' ? String(a) : a));
+  fd.append('answers_json', JSON.stringify(answers));
 
       const res = await fetch('../api/quiz_submit.php', {
         method: 'POST',
@@ -827,14 +1022,54 @@ if ($st = $db->prepare("SELECT name, title, topic FROM speakers WHERE id = ? LIM
         return; 
       }
 
-      // Success - show results
+      // Handle pass-only save logic
+      const total = data.total ?? answers.length;
+      if (data.passed === false) {
+        // Did not meet passing score; show modal and allow retry without saving
+        const req = (data.required != null) ? `${data.required}` : '';
+        quizResultTitle.textContent = 'Please Try Again';
+        quizResultIcon.className = 'bi bi-x-circle-fill text-danger';
+        quizResultSummary.textContent = `You scored ${data.score}/${total}.`;
+        quizResultDetail.textContent = req ? `Passing requires at least ${req} correct answers.` : '';
+        quizResultModal.show();
+        // Show Retry + Back to Speaker; hide Back to Programs
+        document.getElementById('modalBackProgramsBtn').classList.add('d-none');
+        document.getElementById('backLink').classList.remove('d-none');
+        modalRetryBtn.classList.remove('d-none');
+        modalRetryBtn.onclick = () => { quizResultModal.hide(); clearAnswers(); };
+        submitBtn.blur();
+        return;
+      }
+
+      // Passed or no passing threshold: show results and hide form
       progressBar.style.width = '100%';
       quizForm.classList.add('d-none');
       resultCard.classList.remove('d-none');
-      
-      const total = data.total ?? answers.length;
       resultText.textContent = `You scored ${data.score} out of ${total}`;
-      
+      // Configure modal based on presence of a passing requirement
+      const hasRequirement = (data.required != null);
+      if (!hasRequirement) {
+        // No required passing score: minimal modal with only score and Back to Programs
+        quizResultTitle.textContent = 'Quiz Submitted';
+        quizResultIcon.className = 'bi bi-check-circle-fill text-success';
+        quizResultSummary.textContent = `You scored ${data.score}/${total}.`;
+        quizResultDetail.textContent = '';
+        // Show Back to Programs only
+        modalBackProgramsBtn.classList.remove('d-none');
+        document.getElementById('backLink').classList.add('d-none');
+        modalRetryBtn.classList.add('d-none');
+        quizResultModal.show();
+      } else {
+        // Has requirement and passed: show standard success modal (no retry)
+        quizResultTitle.textContent = 'Great Job!';
+        quizResultIcon.className = 'bi bi-check-circle-fill text-success';
+        quizResultSummary.textContent = `You scored ${data.score}/${total}.`;
+        quizResultDetail.textContent = '';
+        document.getElementById('modalBackProgramsBtn').classList.add('d-none');
+        document.getElementById('backLink').classList.remove('d-none');
+        modalRetryBtn.classList.add('d-none');
+        quizResultModal.show();
+      }
       resultCard.scrollIntoView({ behavior: 'smooth', block: 'center' });
 
     } catch (err) {
@@ -850,6 +1085,16 @@ if ($st = $db->prepare("SELECT name, title, topic FROM speakers WHERE id = ? LIM
 
   // Initialize
   loadQuiz();
+
+  function clearAnswers() {
+    // Radios: uncheck and remove selected class
+    questionsWrap.querySelectorAll('input[type="radio"]').forEach(r => { r.checked = false; });
+    questionsWrap.querySelectorAll('input[type="checkbox"]').forEach(c => { c.checked = false; });
+    questionsWrap.querySelectorAll('.mcq-option').forEach(div => div.classList.remove('selected'));
+    // Paragraphs
+    questionsWrap.querySelectorAll('textarea').forEach(t => t.value = '');
+    updateProgress();
+  }
   </script>
 </body>
 </html>

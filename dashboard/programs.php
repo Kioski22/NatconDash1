@@ -208,6 +208,57 @@ if ($_SERVER['REQUEST_METHOD']==='POST' && isset($_POST['attendance_submit'])) {
     }
   }
 
+  // Load reusable attendance profile for prefill across days
+  $attProfile = [
+    'first_name'=>'','middle_name'=>'','last_name'=>'','prc_license_number'=>'','birthday'=>'','prc_license_expiry'=>'','prc_license_type'=>'','contact_number'=>''
+  ];
+  if ($userId>0 && ($conn instanceof mysqli)) {
+    // Ensure profile table exists (best-effort)
+    @$conn->query("CREATE TABLE IF NOT EXISTS attendance_profile (
+      user_id INT PRIMARY KEY,
+      first_name VARCHAR(120) NULL,
+      middle_name VARCHAR(120) NULL,
+      last_name VARCHAR(120) NULL,
+      prc_license_number VARCHAR(20) NULL,
+      birthday DATE NULL,
+      prc_license_expiry DATE NULL,
+      prc_license_type VARCHAR(100) NULL,
+      contact_number VARCHAR(50) NULL,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+    // Try load profile row
+    if ($stP = $conn->prepare('SELECT first_name,middle_name,last_name,prc_license_number,DATE_FORMAT(birthday, "%Y-%m-%d") as birthday,DATE_FORMAT(prc_license_expiry, "%Y-%m-%d") as prc_license_expiry,prc_license_type,contact_number FROM attendance_profile WHERE user_id=? LIMIT 1')) {
+      $stP->bind_param('i',$userId);
+      if ($stP->execute()) {
+        $resP = $stP->get_result();
+        if ($rowP = $resP->fetch_assoc()) { $attProfile = array_merge($attProfile, array_map('strval',$rowP)); }
+      }
+      $stP->close();
+    }
+    // Fallback to last attendance record if profile is empty
+    if ($attProfile['first_name']==='' && $attProfile['last_name']==='') {
+      if ($stL = $conn->prepare('SELECT first_name,middle_name,last_name,prc_license_number,DATE_FORMAT(birthday, "%Y-%m-%d"),DATE_FORMAT(prc_license_expiry, "%Y-%m-%d"),prc_license_type,contact_number FROM attendance WHERE user_id=? ORDER BY id DESC LIMIT 1')) {
+        $stL->bind_param('i',$userId);
+        if ($stL->execute()) {
+          $stL->bind_result($f,$m,$l,$prc,$b,$exp,$typ,$ct);
+          if ($stL->fetch()) {
+            $attProfile = [
+              'first_name'=>(string)$f,
+              'middle_name'=>(string)$m,
+              'last_name'=>(string)$l,
+              'prc_license_number'=>(string)$prc,
+              'birthday'=>(string)$b,
+              'prc_license_expiry'=>(string)$exp,
+              'prc_license_type'=>(string)$typ,
+              'contact_number'=>(string)$ct
+            ];
+          }
+        }
+        $stL->close();
+      }
+    }
+  }
+
   // If pending attendance data stored earlier, attempt insert now (after we know positional day number)
   if (!$attendanceOk && isset($_SESSION['_att_pending'])) {
     $pending = $_SESSION['_att_pending'];
@@ -234,6 +285,26 @@ if ($_SERVER['REQUEST_METHOD']==='POST' && isset($_POST['attendance_submit'])) {
         if ($st) {
           if ($st->execute()) {
             $attendanceOk=true; $attendanceMsg=['type'=>'success','text'=>'Attendance recorded.']; $userHasAttendance=true;
+            // Upsert profile for reuse across days
+            if ($userId>0) {
+              @$conn->query("CREATE TABLE IF NOT EXISTS attendance_profile (
+                user_id INT PRIMARY KEY,
+                first_name VARCHAR(120) NULL,
+                middle_name VARCHAR(120) NULL,
+                last_name VARCHAR(120) NULL,
+                prc_license_number VARCHAR(20) NULL,
+                birthday DATE NULL,
+                prc_license_expiry DATE NULL,
+                prc_license_type VARCHAR(100) NULL,
+                contact_number VARCHAR(50) NULL,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+              ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+              if ($up = $conn->prepare('INSERT INTO attendance_profile (user_id,first_name,middle_name,last_name,prc_license_number,birthday,prc_license_expiry,prc_license_type,contact_number) VALUES (?,?,?,?,?,?,?,?,?) ON DUPLICATE KEY UPDATE first_name=VALUES(first_name), middle_name=VALUES(middle_name), last_name=VALUES(last_name), prc_license_number=VALUES(prc_license_number), birthday=VALUES(birthday), prc_license_expiry=VALUES(prc_license_expiry), prc_license_type=VALUES(prc_license_type), contact_number=VALUES(contact_number)')) {
+                $up->bind_param('issssssss', $userId, $pending['first_name'], $pending['middle_name'], $pending['last_name'], $pending['prc_license_number'], $pending['birthday'], $pending['prc_license_expiry'], $pending['prc_license_type'], $pending['contact_number']);
+                $up->execute();
+                $up->close();
+              }
+            }
           } else {
             if ($conn->errno==1062) { $attendanceMsg=['type'=>'warning','text'=>'You already marked attendance for this day.']; $userHasAttendance=true; }
             else { $attendanceMsg=['type'=>'danger','text'=>'Failed to save attendance.']; }
@@ -331,59 +402,163 @@ if ($_SERVER['REQUEST_METHOD']==='POST' && isset($_POST['attendance_submit'])) {
   <?php endif; ?>
   <script>
     // Overall progress logic
+    function formatActivation(dtStr){
+      if(!dtStr) return '';
+      try {
+        // Accept "YYYY-MM-DD HH:MM:SS" or ISO; convert space to T for safer parsing
+        const d = new Date(dtStr.replace(' ', 'T'));
+        if(isNaN(d.getTime())) return dtStr;
+        return d.toLocaleString();
+      } catch(_) { return dtStr; }
+    }
     async function loadOverall(){
+      const wrap = document.getElementById('overallProgress');
+      if (!wrap) return;
       try {
         const [rComp, rAtt] = await Promise.all([
-          fetch('../api/main_program_completion.php',{credentials:'same-origin'}),
-          fetch('../api/main_program_attendance_certificate.php?progress=1',{credentials:'same-origin'})
+          fetch('../api/main_program_completion.php?ts=' + Date.now(),{credentials:'same-origin', cache:'no-store'}),
+          fetch('../api/main_program_attendance_certificate.php?progress=1&ts=' + Date.now(),{credentials:'same-origin', cache:'no-store'})
         ]);
-  const data = await rComp.json();
-        let attData = {};
-        try { attData = await rAtt.json(); } catch(e){}
-        if(!data || !data.ok) return;
-        const wrap = document.getElementById('overallProgress');
-        wrap.classList.remove('d-none');
+  let data = {}; try { data = await rComp.json(); } catch(e){ data = {}; }
+  let attData = {}; let attOk=false; try { attData = await rAtt.json(); attOk = !!attData.ok; } catch(e){ attData = {}; attOk=false; }
+  wrap.classList.remove('d-none');
         // Attendance-only progress: mark attendance for all required days
-        let req = 0, attended = 0;
-        if(attData && attData.ok){
-          const requiredDays = attData.required_days || [];
-          req = requiredDays.length;
-          const attendedDays = attData.attended || [];
-          attended = attendedDays.filter(dn => requiredDays.includes(dn)).length;
-        }
+        const requiredDays = (attData.required_days || []).map(Number);
+        const attendedDays = (attData.attended || []).map(Number);
+        const req = requiredDays.length;
+        const attended = attendedDays.filter(dn => requiredDays.includes(dn)).length;
         const pct = req>0 ? Math.round((attended*100)/req) : 0;
-        document.getElementById('overallBar').style.width = pct + '%';
+        const barEl = document.getElementById('overallBar');
+        barEl.style.width = pct + '%';
+        barEl.setAttribute('aria-valuenow', pct.toString());
+        barEl.setAttribute('aria-valuemin', '0');
+        barEl.setAttribute('aria-valuemax', '100');
         document.getElementById('overallEvalText').textContent = 'Attendance: ' + attended + ' / ' + req + ' required days';
-        document.getElementById('overallQuizText').textContent = '';
+        const overallQuizTextEl = document.getElementById('overallQuizText');
+        overallQuizTextEl.textContent = '';
         const btnGen = document.getElementById('btnGenerateOverall');
         const btnEmail = document.getElementById('btnEmailOverall');
         const btnAtt = document.getElementById('btnGenerateAttendance');
         const btnAll = document.getElementById('btnGenerateAll');
         const alertEl = document.getElementById('overallAlert');
         const attText = document.getElementById('overallAttendanceText');
-        if(attData && attData.ok){
-          const req = (attData.required_days||[]).length;
-            const attended = (attData.attended||[]).filter(dn => (attData.required_days||[]).includes(dn)).length;
-          attText.textContent = 'Attendance: ' + attended + ' / ' + req + ' required days';
-          const attComplete = attData.complete_strict || attData.complete_relaxed;
-          const btnEmailAtt = document.getElementById('btnEmailAttendance');
-          if(attComplete){ btnAtt.classList.remove('d-none'); btnEmailAtt.classList.remove('d-none'); } else { btnAtt.classList.add('d-none'); btnEmailAtt.classList.add('d-none'); }
-        } else {
-          attText.textContent = '';
-          btnAtt.classList.add('d-none');
+        const attEligible = !!attData.eligible;
+        const attComplete = !!(attData.complete_strict || attData.complete_relaxed);
+        const btnEmailAtt = document.getElementById('btnEmailAttendance');
+        const canGenNow = !!attData.can_generate_now;
+        const activationAt = attData.activation_at || '';
+        const hasAnyAttendance = !!attData.has_any_attendance;
+        attText.textContent = 'Attendance: ' + attended + ' / ' + req + ' required days';
+        if(attOk){
+          // Determine status text and button availability with activation gate
+          if(!canGenNow){
+            const txt = activationAt ? ('Attendance certificate available on ' + formatActivation(activationAt) + '.') : 'Attendance certificate generation is not enabled yet.';
+            overallQuizTextEl.textContent = txt;
+          } else if(attEligible && hasAnyAttendance){
+            overallQuizTextEl.textContent = 'Attendance certificate is ready to generate.';
+          } else {
+            const minReq = (attData.min_days_required||0);
+            const target = minReq>0 ? minReq : req;
+            const remaining = Math.max(0, target - attended);
+            overallQuizTextEl.textContent = minReq>0
+              ? ('Attendance certificate locked: attend at least ' + minReq + ' required days. ' + attended + '/' + target + ' so far. ' + (remaining>0?remaining+' more needed.':''))
+              : ('Attendance certificate locked until all required days are attended. ' + attended + '/' + req + ' so far.');
+          }
+
+          if(attEligible && canGenNow && hasAnyAttendance){
+            btnAtt.classList.remove('d-none'); btnEmailAtt.classList.remove('d-none');
+            btnAtt.disabled = false; btnEmailAtt.disabled = false;
+          } else {
+            <?php if ($userId>0): ?>
+            btnAtt.classList.remove('d-none'); btnEmailAtt.classList.remove('d-none');
+            btnAtt.disabled = true; btnEmailAtt.disabled = true;
+            // Provide context via tooltip title
+            if(!canGenNow){
+              btnAtt.title = 'Available on ' + formatActivation(activationAt);
+              btnEmailAtt.title = btnAtt.title;
+            } else if(!hasAnyAttendance) {
+              btnAtt.title = 'Submit at least one attendance first';
+              btnEmailAtt.title = btnAtt.title;
+            } else {
+              btnAtt.title = 'Meet attendance requirements to enable';
+              btnEmailAtt.title = btnAtt.title;
+            }
+            <?php else: ?>
+            btnAtt.classList.add('d-none'); btnEmailAtt.classList.add('d-none');
+            <?php endif; ?>
+          }
         }
-        if (data.complete || data.complete_relaxed){
+
+        const completionOk = data && data.ok;
+        // Enforce strict completion for UI gating (admin rules may require strict; safer to be conservative here)
+        const allowOverallStrict = completionOk && !!data.complete;
+        alertEl.innerHTML = '';
+        // Overall generation depends on server activation as well; reuse attendance can_generate_now signal (global gate)
+        const globalCanGenNow = !!(attData && attData.can_generate_now);
+        const overallEnabled = allowOverallStrict && globalCanGenNow;
+        if (overallEnabled){
           btnGen.classList.remove('d-none');
           btnEmail.classList.remove('d-none');
-          if(!btnAtt.classList.contains('d-none')){ btnAll.classList.remove('d-none'); }
-          else { btnAll.classList.add('d-none'); }
+          btnGen.disabled = false; btnEmail.disabled = false;
         } else {
+          // For logged-in users, keep buttons visible but disabled with a helpful title
+          <?php if ($userId>0): ?>
+          btnGen.classList.remove('d-none');
+          btnEmail.classList.remove('d-none');
+          btnGen.disabled = true; btnEmail.disabled = true;
+          if(!globalCanGenNow){
+            const at = attData && attData.activation_at ? formatActivation(attData.activation_at) : '';
+            btnGen.title = at ? ('Available on ' + at) : 'Certificate generation is not enabled yet';
+            btnEmail.title = btnGen.title;
+            alertEl.innerHTML = '<span class="text-warning">Overall certificate available when generation opens'+(at?(' on '+at):'')+'.</span>';
+          } else if(!allowOverallStrict){
+            btnGen.title = 'Complete all required sessions to enable';
+            btnEmail.title = btnGen.title;
+          }
+          <?php else: ?>
           btnGen.classList.add('d-none');
           btnEmail.classList.add('d-none');
-          btnAll.classList.add('d-none');
+          <?php endif; ?>
         }
-        if(!data.complete && data.complete_relaxed){
+
+        // Attendance enablement (already computed above): use both eligibility and activation
+  const attendanceEnabled = attOk && attEligible && canGenNow && hasAnyAttendance;
+
+        // Generate All button state: enabled only if both are enabled
+        <?php if ($userId>0): ?>
+        btnAll.classList.remove('d-none');
+        if(overallEnabled && attendanceEnabled){
+          btnAll.disabled = false; btnAll.title='';
+        } else {
+          btnAll.disabled = true;
+          if(!globalCanGenNow){
+            const at = attData && attData.activation_at ? formatActivation(attData.activation_at) : '';
+            btnAll.title = at ? ('Available on ' + at) : 'Certificate generation is not enabled yet';
+          } else if(!allowOverallStrict){
+            btnAll.title = 'Complete all required sessions to enable';
+          } else if(!attendanceEnabled){
+            const minReq = (attData.min_days_required||0);
+            const target = minReq>0 ? minReq : req;
+            const remaining = Math.max(0, target - attended);
+            btnAll.title = minReq>0 ? ('Attend at least ' + minReq + ' required days ('+attended+'/'+target+'). '+(remaining>0?remaining+' more needed.':'')) : ('Attend all required days ('+attended+'/'+req+').');
+          }
+        }
+        <?php else: ?>
+        btnAll.classList.add('d-none');
+        <?php endif; ?>
+        if(completionOk && !data.complete && data.complete_relaxed){
           alertEl.innerHTML = '<span class="text-warning">Partial early completion allowed (remaining speakers are future-day).</span>';
+        } else if(!completionOk) {
+          alertEl.innerHTML = '<span class="text-warning">Completion data unavailable right now. Attendance progress shown only.</span>';
+        }
+        if(attOk && !attEligible){
+          const minReq = (attData.min_days_required||0);
+          const rules = attData.rules||{};
+          const pastOnly = rules.require_past_only? ' past-enabled' : '';
+          const msg = minReq>0 ?
+            `Attendance certificate locked: you need at least ${minReq} required${pastOnly} days.` :
+            'Attendance certificate locked until required days are attended.';
+          alertEl.innerHTML += (alertEl.innerHTML? '<br>':'') + `<span class="text-warning">${msg}</span>`;
         }
       } catch(e){ /* ignore */ }
     }
@@ -484,44 +659,45 @@ if ($_SERVER['REQUEST_METHOD']==='POST' && isset($_POST['attendance_submit'])) {
             <div class="row g-2 mb-2">
               <div class="col-4">
                 <label class="form-label">First Name <span class="text-danger">*</span></label>
-                <input type="text" name="first_name" class="form-control form-control-sm" required style="text-transform:uppercase;">
+                <input type="text" name="first_name" class="form-control form-control-sm" required style="text-transform:uppercase;" value="<?= e($attProfile['first_name']) ?>">
               </div>
               <div class="col-4">
                 <label class="form-label">Last Name <span class="text-danger">*</span></label>
-                <input type="text" name="last_name" class="form-control form-control-sm" required style="text-transform:uppercase;">
+                <input type="text" name="last_name" class="form-control form-control-sm" required style="text-transform:uppercase;" value="<?= e($attProfile['last_name']) ?>">
               </div>
               <div class="col-4">
                 <label class="form-label">Middle Name</label>
-                <input type="text" name="middle_name" class="form-control form-control-sm" style="text-transform:uppercase;" placeholder="Optional">
+                <input type="text" name="middle_name" class="form-control form-control-sm" style="text-transform:uppercase;" placeholder="Optional" value="<?= e($attProfile['middle_name']) ?>">
               </div>
             </div>
             <div class="mb-2">
               <label class="form-label">PRC License Number <span class="text-danger">*</span></label>
-              <input type="text" name="prc_license_number" maxlength="7" pattern="\\d{1,7}" class="form-control form-control-sm" required placeholder="Up to 7 digits">
+              <input type="text" name="prc_license_number" maxlength="7" pattern="\\d{1,7}" class="form-control form-control-sm" required placeholder="Up to 7 digits" value="<?= e($attProfile['prc_license_number']) ?>">
               <div class="form-text text-warning">Enter 1 to 7 digits (numbers only).</div>
             </div>
             <div class="row g-2">
               <div class="col-6">
                 <label class="form-label">Birthday</label>
-                <input type="date" name="birthday" class="form-control form-control-sm">
+                <input type="date" name="birthday" class="form-control form-control-sm" value="<?= e($attProfile['birthday']) ?>">
               </div>
               <div class="col-6">
                 <label class="form-label">License Expiry</label>
-                <input type="date" name="prc_license_expiry" class="form-control form-control-sm">
+                <input type="date" name="prc_license_expiry" class="form-control form-control-sm" value="<?= e($attProfile['prc_license_expiry']) ?>">
               </div>
             </div>
             <div class="mb-2 mt-2">
               <label class="form-label">License Type</label>
               <select name="prc_license_type" class="form-select form-select-sm">
-                <option value="">-- Select Type --</option>
-                <option value="Professional Mechanical Engineer">Professional Mechanical Engineer</option>
-                <option value="Registered Mechanical Engineer">Registered Mechanical Engineer</option>
-                <option value="Certified Plant Mechanic">Certified Plant Mechanic</option>
+                <?php $selType = strtolower(trim((string)$attProfile['prc_license_type'])); ?>
+                <option value="" <?= $selType===''?'selected':'' ?>>-- Select Type --</option>
+                <option value="Professional Mechanical Engineer" <?= $selType==='professional mechanical engineer'?'selected':'' ?>>Professional Mechanical Engineer</option>
+                <option value="Registered Mechanical Engineer" <?= $selType==='registered mechanical engineer'?'selected':'' ?>>Registered Mechanical Engineer</option>
+                <option value="Certified Plant Mechanic" <?= $selType==='certified plant mechanic'?'selected':'' ?>>Certified Plant Mechanic</option>
               </select>
             </div>
             <div class="mb-3">
               <label class="form-label">Contact Number</label>
-              <input type="text" name="contact_number" class="form-control form-control-sm" placeholder="09xxxxxxxxx">
+              <input type="text" name="contact_number" class="form-control form-control-sm" placeholder="09xxxxxxxxx" value="<?= e($attProfile['contact_number']) ?>">
             </div>
             <div class="d-flex justify-content-end gap-2">
               <button type="submit" class="btn btn-sm btn-primary">Save Attendance</button>

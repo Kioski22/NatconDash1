@@ -163,8 +163,10 @@ $dayId = isset($_GET['day_id']) ? (int)$_GET['day_id'] : 0; if ($dayId <= 0) { h
   async function renderDepartments(data){
     const titleEl=document.getElementById('dayTitle'); const subEl=document.getElementById('daySubtitle');
     if(!data.day){ titleEl.textContent='Day Not Found'; subEl.textContent=''; return; }
-    titleEl.textContent='Sub Program - Day ' + (data.day.label||'');
-    subEl.textContent='Select a department to view its speakers.';
+    const dayLabel = (data.day.label||'').toString().trim();
+    const selectedText = dayLabel ? ('Selected ' + dayLabel) : ('Selected Day ' + String(<?= (int)$dayId ?>));
+    titleEl.textContent='Sub Program - ' + (dayLabel || '');
+    subEl.textContent= selectedText + ' • Select a department to view its speakers.';
     const depts=data.departments||{}; const keys=Object.keys(depts);
     if(keys.length===0){ document.getElementById('emptyState').classList.remove('d-none'); return; }
     const container=document.getElementById('departmentsContainer'); container.innerHTML='';
@@ -228,7 +230,11 @@ $dayId = isset($_GET['day_id']) ? (int)$_GET['day_id'] : 0; if ($dayId <= 0) { h
               const card=document.createElement('div'); card.className='speaker-item'; card.dataset.id=sp.id;
               let timeTxt='Time TBA';
               if(sp.start_time||sp.end_time){ const st=(sp.start_time||'').substring(0,5); const et=(sp.end_time||''); timeTxt=st+(et?' - '+et.substring(0,5):''); }
-              card.innerHTML='<strong class="d-block mb-1">'+esc(sp.name||'')+'</strong>'
+                const finished = (sp.finished === 1 || sp.finished === '1' || sp.finished === true);
+                const badge = finished ? '<span class="badge bg-success ms-2">Finished</span>' : '';
+                card.innerHTML='<div class="d-flex justify-content-between align-items-start mb-1">'
+                  +'<div class="d-flex align-items-center"><strong>'+esc(sp.name||'')+'</strong>'+(badge?badge:'')+'</div>'
+                  +'</div>'
                 +(sp.topic?'<div class="speaker-title mb-1">'+esc(sp.topic)+'</div>':(sp.title?'<div class="speaker-title mb-1">'+esc(sp.title)+'</div>':''))
                 +'<div class="speaker-time mb-1">'+esc(timeTxt)+'</div>'
                 +'<div class="small opacity-75">Room: '+esc(sp.room_name||'')+'</div>'
@@ -267,20 +273,28 @@ $dayId = isset($_GET['day_id']) ? (int)$_GET['day_id'] : 0; if ($dayId <= 0) { h
         const completionGenerated = !!status.certificate;
   const completionTemplateAssigned = !!status.completion_template_assigned;
 
-        // Completion button only if template exists
-        if(completionTemplateAssigned){
-          btnComp.classList.remove('d-none');
-          if(status.complete){
-            btnComp.disabled=false; btnComp.classList.remove('btn-outline-warning'); btnComp.classList.add('btn-warning');
-            if(completionGenerated){
-              btnComp.textContent='View Completion';
-              btnComp.dataset.file='../'+status.certificate.file_path;
-            } else {
-              btnComp.textContent='Generate Completion';
-            }
+        // Update progress bars based on server-side eligibility (uses pass criteria)
+        const progressWrap = block.querySelector('.dept-progress');
+        if (status.progress && progressWrap) {
+          const qp = (status.progress.quiz_completed ?? 0);
+          const qt = (status.progress.quiz_total ?? 0);
+          const ep = (status.progress.eval_completed ?? 0);
+          const et = (status.progress.eval_total ?? 0);
+          progressWrap.innerHTML = buildProgressBar(qp, qt, 'Quiz Completion') + buildProgressBar(ep, et, 'Evaluation Completion');
+        }
+
+        // Completion button: always available when complete (server has a fallback layout if no template assigned)
+        btnComp.classList.remove('d-none');
+        if(status.complete){
+          btnComp.disabled=false; btnComp.classList.remove('btn-outline-warning'); btnComp.classList.add('btn-warning');
+          if(completionGenerated){
+            btnComp.textContent='View Completion';
+            btnComp.dataset.file='../'+status.certificate.file_path;
           } else {
-            btnComp.disabled=true; btnComp.textContent='Completion Locked';
+            btnComp.textContent='Generate Completion';
           }
+        } else {
+          btnComp.disabled=true; btnComp.textContent='Completion Locked';
         }
         // Attendance gated by full completion (progress complete AND attendance template)
         if(attendanceTemplateAssigned && status.complete){
@@ -294,10 +308,9 @@ $dayId = isset($_GET['day_id']) ? (int)$_GET['day_id'] : 0; if ($dayId <= 0) { h
         // Status summary line
         if(completionGenerated){
           statusEl.innerHTML='<span class="text-info">Completion certificate generated.</span>';
-        } else if(status.complete && completionTemplateAssigned){
-          statusEl.innerHTML='<span class="text-success">All requirements met. Generate completion certificate.</span>';
-        } else if(status.complete && !completionTemplateAssigned){
-          statusEl.innerHTML='<span class="text-warning">Completion layout not assigned for this department.</span>';
+        } else if(status.complete){
+          const note = completionTemplateAssigned ? '' : ' (default layout)';
+          statusEl.innerHTML='<span class="text-success">All requirements met. Generate completion certificate'+note+'.</span>';
         } else {
           statusEl.innerHTML='<span class="text-light">Progress '+prog.completed+' / '+prog.total+' complete.</span>';
         }
@@ -343,17 +356,24 @@ $dayId = isset($_GET['day_id']) ? (int)$_GET['day_id'] : 0; if ($dayId <= 0) { h
         const attendanceGenerated = !!(s.attendance && s.attendance.certificate);
         const completionGenerated = !!s.certificate;
   const completionTemplateAssigned = !!s.completion_template_assigned;
-        // Attendance
-        // Completion visibility
-        if(completionTemplateAssigned){
-          btnComp.classList.remove('d-none');
-          if(s.complete){
-            btnComp.classList.remove('btn-outline-warning'); btnComp.classList.add('btn-warning');
-            if(completionGenerated){ btnComp.disabled=false; btnComp.dataset.file='../'+s.certificate.file_path; btnComp.querySelector('[data-label="comp"]').textContent='View Completion'; btnEmailComp.classList.remove('d-none'); btnEmailComp.disabled=false; }
-            else { btnComp.disabled=false; btnComp.querySelector('[data-label="comp"]').textContent='Generate Completion'; }
-          } else {
-            btnComp.disabled=true; btnComp.querySelector('[data-label="comp"]').textContent='Completion Locked';
-          }
+        // Update progress from authoritative server status
+        const progressWrap = block.querySelector('.dept-progress');
+        if (s.progress && progressWrap) {
+          const qp = (s.progress.quiz_completed ?? 0);
+          const qt = (s.progress.quiz_total ?? 0);
+          const ep = (s.progress.eval_completed ?? 0);
+          const et = (s.progress.eval_total ?? 0);
+          progressWrap.innerHTML = buildProgressBar(qp, qt, 'Quiz Completion') + buildProgressBar(ep, et, 'Evaluation Completion');
+        }
+
+        // Completion visibility (always show; use fallback layout if no template assigned)
+        btnComp.classList.remove('d-none');
+        if(s.complete){
+          btnComp.classList.remove('btn-outline-warning'); btnComp.classList.add('btn-warning');
+          if(completionGenerated){ btnComp.disabled=false; btnComp.dataset.file='../'+s.certificate.file_path; btnComp.querySelector('[data-label="comp"]').textContent='View Completion'; btnEmailComp.classList.remove('d-none'); btnEmailComp.disabled=false; }
+          else { btnComp.disabled=false; btnComp.querySelector('[data-label="comp"]').textContent='Generate Completion'; }
+        } else {
+          btnComp.disabled=true; btnComp.querySelector('[data-label="comp"]').textContent='Completion Locked';
         }
         // Attendance gated
         if(attendanceTemplateAssigned && s.complete){
