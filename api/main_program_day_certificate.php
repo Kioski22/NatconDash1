@@ -73,7 +73,7 @@ $show_awardee = (int)$tpl['show_awardee']===1; $show_seminar=(int)$tpl['show_sem
 
 $html='<!DOCTYPE html><html><head><meta charset="utf-8"><style>@page{margin:0;}html,body{margin:0;padding:0;} .page{position:relative;width:'.$imgW.'px;height:'.$imgH.'px;} .bg{position:absolute;left:0;top:0;width:100%;height:100%;} .txt{position:absolute;white-space:nowrap;font-family:Helvetica,Arial,sans-serif;font-weight:500;}</style></head><body>'; $html.='<div class="page">'; if($bg_uri){ $html.='<img class="bg" src="'.esc($bg_uri).'" />'; }
 $awardee_left=(float)$tpl['pos_cert_awardee_name_x']; $awardee_top=(float)$tpl['pos_cert_awardee_name_y']; $seminar_left=(float)$tpl['pos_seminar_title_x']; $seminar_top=(float)$tpl['pos_seminar_title_y']; $num_left=(float)$tpl['pos_cert_number_x']; $num_top=(float)$tpl['pos_cert_number_y'];
-if($show_awardee){ $html.='<div class="txt" style="left:'.$awardee_left.'%;top:'.$awardee_top.'%;font-size:46px;">'.esc($awardee).'</div>'; }
+if($show_awardee){ $html.='<div class="txt awardee" style="left:50%;top:'.$awardee_top.'%;transform:translateX(-50%);text-align:center;font-size:46px;">'.esc($awardee).'</div>'; }
 if($show_seminar){ $html.='<div class="txt" style="left:'.$seminar_left.'%;top:'.$seminar_top.'%;font-size:24px;">'.esc($seminarTitle).'</div>'; }
 if($show_number){ $html.='<div class="txt" style="left:'.$num_left.'%;top:'.$num_top.'%;font-size:16px;">'.esc($cert_number).'</div>'; }
 $html.='<div style="position:absolute;right:16px;bottom:12px;font-size:10px;color:#333;">Issued '.$issuedAt.'</div>';

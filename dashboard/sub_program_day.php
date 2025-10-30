@@ -93,9 +93,11 @@ $dayId = isset($_GET['day_id']) ? (int)$_GET['day_id'] : 0; if ($dayId <= 0) { h
 <script>
   const dayId = <?= (int)$dayId ?>;
   function esc(str){ return document.createTextNode(str ?? '').textContent; }
-  async function fetchDepartmentCertificateStatus(deptId){
+  async function fetchDepartmentProgressStatus(deptId, dayId=0){
     try {
-      const r = await fetch('../api/sub_department_certificate.php?department_id='+deptId,{credentials:'same-origin'});
+      const params = new URLSearchParams({ department_id: String(deptId) });
+      if (dayId > 0) params.append('day_id', String(dayId));
+      const r = await fetch('../api/sub_department_progress.php?'+params.toString(),{credentials:'same-origin'});
       if(!r.ok) return null; return await r.json();
     } catch(e){ return null; }
   }
@@ -104,6 +106,45 @@ $dayId = isset($_GET['day_id']) ? (int)$_GET['day_id'] : 0; if ($dayId <= 0) { h
     const pct = total>0 ? Math.round((completed/total)*100) : 0;
     return '<div class="mb-2"><div class="d-flex justify-content-between small"><span>'+label+'</span><span>'+completed+'/'+total+'</span></div>'+
       '<div class="progress" style="height:8px;background:rgba(255,255,255,0.15);"><div class="progress-bar bg-warning" role="progressbar" style="width:'+pct+'%" aria-valuenow="'+pct+'" aria-valuemin="0" aria-valuemax="100"></div></div></div>';
+  }
+
+  function summarizePending(pending){
+    if(!Array.isArray(pending) || pending.length===0) return '';
+    var maxShow = 3;
+    var items = pending.slice(0,maxShow).map(function(p){
+      var hasLabel = p && typeof p.speaker_label==='string' && p.speaker_label.trim()!=='';
+      var fallbackId = (p && typeof p.speaker_id==='number') ? p.speaker_id : '?';
+      var label = hasLabel ? p.speaker_label.trim() : ('Speaker #'+fallbackId);
+      var needs=[];
+      if(p && p.needs_eval) needs.push('evaluation');
+      if(p && p.needs_quiz) needs.push('quiz');
+      var suffix = needs.length?(' ('+needs.join(' & ')+')'):'';
+      return label+suffix;
+    });
+    var msg = 'Still needed: '+items.join(', ');
+    if(pending.length>maxShow){ msg += ', +'+(pending.length-maxShow)+' more'; }
+    return msg;
+  }
+
+  function summarizeSkipped(skippedSummary){
+    if(!skippedSummary || typeof skippedSummary!=='object') return '';
+    var labels={
+      'day_future':'future sessions',
+      'day_disabled':'disabled days',
+      'room_inactive':'inactive rooms',
+      'room_missing':'unscheduled sessions',
+      'day_other':'sessions on other days',
+      'day_unassigned':'unscheduled day'
+    };
+    var entries = Object.keys(skippedSummary);
+    if(!entries.length) return '';
+    var parts = entries.map(function(key){
+      var count = skippedSummary[key];
+      if(typeof count!=='number') count = 0;
+      var label = labels[key] || key.replace(/_/g,' ');
+      return count+' '+label;
+    });
+    return 'Waiting on '+parts.join(', ');
   }
 
   // Maintain an in-memory snapshot to enable incremental UI refresh without full rebuild
@@ -131,8 +172,9 @@ $dayId = isset($_GET['day_id']) ? (int)$_GET['day_id'] : 0; if ($dayId <= 0) { h
         if(evalTotal===0){ evalTotal=speakers.length; evalCompleted=speakers.filter(s=>s.evaluated).length; }
         departmentSnapshot[id] = {quizCompleted,quizTotal,evalCompleted,evalTotal};
         // Update existing progress bars in DOM
-        const block = document.querySelector('.dept-block [data-dept-block="'+id+'"]')?.closest('.dept-block') || document.querySelector('.dept-block[data-dept-id="'+id+'"]');
-        const container = block?.querySelector('.dept-progress');
+  const possible = document.querySelector('.dept-block [data-dept-block="'+id+'"]');
+  const block = possible ? possible.closest('.dept-block') : document.querySelector('.dept-block[data-dept-id="'+id+'"]');
+  const container = block ? block.querySelector('.dept-progress') : null;
         if(container){
           container.innerHTML = buildProgressBar(quizCompleted,quizTotal,'Quiz Completion') + buildProgressBar(evalCompleted,evalTotal,'Evaluation Completion');
         }
@@ -196,19 +238,7 @@ $dayId = isset($_GET['day_id']) ? (int)$_GET['day_id'] : 0; if ($dayId <= 0) { h
       block.innerHTML='<div class="d-flex flex-column flex-md-row justify-content-between align-items-md-center dept-header gap-3" style="cursor:pointer;">'
         +'<div class="flex-grow-1"><h4 class="mb-1 fs-5">'+esc(info.department_name||'Department')+'</h4>'
         +'<div class="small text-light opacity-75">'+speakerCount+' Speaker'+(speakerCount===1?'':'s')+'</div></div>'
-        +'<div class="text-end">'
-  +'<div class="d-flex flex-column gap-2">'
-  +'<div class="btn-group" role="group" style="position:relative;">'
-  +'<button class="btn btn-sm btn-outline-warning d-flex align-items-center gap-2 generate-attendance-cert d-none" data-dept="'+deptId+'" disabled><span class="spinner-border spinner-border-sm d-none text-light" data-spin="att" role="status" aria-hidden="true"></span><span data-label="att">Attendance</span></button>'
-  +'<button class="btn btn-sm btn-outline-warning d-flex align-items-center gap-2 generate-completion-cert d-none" data-dept="'+deptId+'" disabled><span class="spinner-border spinner-border-sm d-none text-light" data-spin="comp" role="status" aria-hidden="true"></span><span data-label="comp">Completion</span></button>'
-  +'<div class="position-absolute top-0 start-0 w-100 h-100 bg-dark bg-opacity-25 d-none" data-overlay="group"></div>'
-  +'</div>'
-  +'<div class="d-flex flex-column gap-1">'
-  +'<button class="btn btn-sm btn-outline-light email-att-cert d-none" data-dept="'+deptId+'" disabled>Email Attendance</button>'
-  +'<button class="btn btn-sm btn-outline-light email-comp-cert d-none" data-dept="'+deptId+'" disabled>Email Completion</button>'
-  +'</div>'
-  +'</div>'
-        +'</div>'
+        +'<div class="text-end"><span class="badge bg-warning text-dark small">Progress</span></div>'
         +'</div>'
         +'<div class="dept-progress mt-3">'
         + buildProgressBar(quizCompleted,quizTotal,'Quiz Completion')
@@ -219,7 +249,6 @@ $dayId = isset($_GET['day_id']) ? (int)$_GET['day_id'] : 0; if ($dayId <= 0) { h
       const speakersWrap=block.querySelector('.dept-speakers');
       const header=block.querySelector('.dept-header');
       header.addEventListener('click',e=>{
-        if(e.target.closest('.generate-dept-cert')|| e.target.closest('.email-dept-cert')) return; // ignore button clicks
         const isOpen=speakersWrap.classList.contains('show');
         document.querySelectorAll('.dept-speakers.show').forEach(el=>el.classList.remove('show'));
         if(!isOpen){
@@ -258,203 +287,51 @@ $dayId = isset($_GET['day_id']) ? (int)$_GET['day_id'] : 0; if ($dayId <= 0) { h
       });
       container.appendChild(block);
 
-      // Fetch certificate status + enable generate/email if complete
+      // Fetch certificate status for summary display
       const statusEl = block.querySelector('[data-status]');
-  const btnAtt = block.querySelector('.generate-attendance-cert');
-  const btnComp = block.querySelector('.generate-completion-cert');
-  const btnEmailAtt = block.querySelector('.email-att-cert');
-  const btnEmailComp = block.querySelector('.email-comp-cert');
-  const overlay = block.querySelector('[data-overlay="group"]');
-      const status = await fetchDepartmentCertificateStatus(deptId);
+    const status = await fetchDepartmentProgressStatus(deptId, dayId);
       if(status && status.ok){
-        const prog = status.progress || {completed:0,total:0};
-  const attendanceTemplateAssigned = !!(status.attendance && status.attendance.template_assigned);
-        const attendanceGenerated = !!(status.attendance && status.attendance.certificate);
-        const completionGenerated = !!status.certificate;
-  const completionTemplateAssigned = !!status.completion_template_assigned;
-
-        // Update progress bars based on server-side eligibility (uses pass criteria)
+        const prog = status.progress || {};
         const progressWrap = block.querySelector('.dept-progress');
-        if (status.progress && progressWrap) {
-          const qp = (status.progress.quiz_completed ?? 0);
-          const qt = (status.progress.quiz_total ?? 0);
-          const ep = (status.progress.eval_completed ?? 0);
-          const et = (status.progress.eval_total ?? 0);
+        if (progressWrap) {
+          const qp = Number(prog.quiz_completed ?? 0);
+          const qt = Number(prog.quiz_total ?? 0);
+          const ep = Number(prog.eval_completed ?? 0);
+          const et = Number(prog.eval_total ?? 0);
           progressWrap.innerHTML = buildProgressBar(qp, qt, 'Quiz Completion') + buildProgressBar(ep, et, 'Evaluation Completion');
         }
 
-        // Completion button: always available when complete (server has a fallback layout if no template assigned)
-        btnComp.classList.remove('d-none');
-        if(status.complete){
-          btnComp.disabled=false; btnComp.classList.remove('btn-outline-warning'); btnComp.classList.add('btn-warning');
-          if(completionGenerated){
-            btnComp.textContent='View Completion';
-            btnComp.dataset.file='../'+status.certificate.file_path;
-          } else {
-            btnComp.textContent='Generate Completion';
-          }
-        } else {
-          btnComp.disabled=true; btnComp.textContent='Completion Locked';
-        }
-        // Attendance gated by full completion (progress complete AND attendance template)
-        if(attendanceTemplateAssigned && status.complete){
-          btnAtt.classList.remove('d-none');
-          if(attendanceGenerated){
-            btnAtt.disabled=false; btnAtt.classList.remove('btn-outline-warning'); btnAtt.classList.add('btn-warning'); btnAtt.textContent='View Attendance'; btnAtt.dataset.file='../'+status.attendance.certificate.file_path;
-          } else {
-            btnAtt.disabled=false; btnAtt.classList.remove('btn-outline-warning'); btnAtt.classList.add('btn-warning'); btnAtt.textContent='Generate Attendance';
+        const summary = status.summary || {};
+        const pendingMsg = summarizePending(prog.pending_detail);
+        const skippedMsg = summarizeSkipped(prog.skipped_summary);
+        const defaultProgressMsg = 'Progress ' + (prog.completed ?? 0) + ' / ' + (prog.total ?? 0) + ' complete.';
+        let messageText = (typeof summary.text === 'string' && summary.text.trim() !== '') ? summary.text.trim() : defaultProgressMsg;
+
+        if(messageText === defaultProgressMsg){
+          if(pendingMsg){
+            messageText = pendingMsg;
+          } else if((prog.total ?? 0) === 0){
+            messageText = skippedMsg || 'No active sessions available yet.';
+          } else if(skippedMsg){
+            messageText += ' ' + skippedMsg;
           }
         }
-        // Status summary line
-        if(completionGenerated){
-          statusEl.innerHTML='<span class="text-info">Completion certificate generated.</span>';
-        } else if(status.complete){
-          const note = completionTemplateAssigned ? '' : ' (default layout)';
-          statusEl.innerHTML='<span class="text-success">All requirements met. Generate completion certificate'+note+'.</span>';
-        } else {
-          statusEl.innerHTML='<span class="text-light">Progress '+prog.completed+' / '+prog.total+' complete.</span>';
-        }
-        if(attendanceGenerated){ btnEmailAtt.classList.remove('d-none'); btnEmailAtt.disabled=false; }
-        if(completionGenerated){ btnEmailComp.classList.remove('d-none'); btnEmailComp.disabled=false; }
+
+        const allowedVariants = ['success','warning','info','danger','light','muted'];
+        let variant = typeof summary.variant === 'string' ? summary.variant.trim().toLowerCase() : '';
+        if(!allowedVariants.includes(variant)){ variant = 'light'; }
+        const variantClass = variant === 'muted' ? 'text-muted' : ('text-' + variant);
+
+        statusEl.textContent = messageText;
+        statusEl.className = 'dept-cert-status small mt-2 ' + variantClass;
       } else {
-        statusEl.textContent='Unable to load certificate status.';
+        statusEl.textContent = 'Unable to load certificate status.';
+        statusEl.className = 'dept-cert-status small mt-2 text-danger';
       }
-
-      // Attendance generation/view
-      function setBusy(kind,busy){
-        const spin = block.querySelector('[data-spin="'+kind+'"]');
-        const label = block.querySelector('[data-label="'+kind+'"]');
-        const btn = kind==='att'?btnAtt:btnComp;
-        if(!spin || !label) return;
-        if(busy){
-          if(!label.dataset.orig) label.dataset.orig = label.textContent;
-          spin.classList.remove('d-none');
-          label.textContent = 'Generating...';
-          label.classList.add('opacity-75');
-          overlay?.classList.remove('d-none');
-          // Disable both buttons to avoid overlapping generation
-          btnAtt.disabled=true; btnComp.disabled=true;
-          btn.setAttribute('aria-busy','true');
-        } else {
-          spin.classList.add('d-none');
-          btn.removeAttribute('aria-busy');
-          if(!btn.dataset.file && label.dataset.orig){
-            // Only restore original text if we did not convert to View state yet
-            label.textContent = label.dataset.orig;
-          }
-          label.classList.remove('opacity-75');
-          if(!(block.querySelector('[data-spin="att"]:not(.d-none)')||block.querySelector('[data-spin="comp"]:not(.d-none)'))){
-            overlay?.classList.add('d-none');
-          }
-        }
-      }
-
-      async function syncStatus(){
-        const s = await fetchDepartmentCertificateStatus(deptId).catch(()=>null);
-        if(!s || !s.ok) return;
-  const attendanceTemplateAssigned = !!(s.attendance && s.attendance.template_assigned);
-        const attendanceGenerated = !!(s.attendance && s.attendance.certificate);
-        const completionGenerated = !!s.certificate;
-  const completionTemplateAssigned = !!s.completion_template_assigned;
-        // Update progress from authoritative server status
-        const progressWrap = block.querySelector('.dept-progress');
-        if (s.progress && progressWrap) {
-          const qp = (s.progress.quiz_completed ?? 0);
-          const qt = (s.progress.quiz_total ?? 0);
-          const ep = (s.progress.eval_completed ?? 0);
-          const et = (s.progress.eval_total ?? 0);
-          progressWrap.innerHTML = buildProgressBar(qp, qt, 'Quiz Completion') + buildProgressBar(ep, et, 'Evaluation Completion');
-        }
-
-        // Completion visibility (always show; use fallback layout if no template assigned)
-        btnComp.classList.remove('d-none');
-        if(s.complete){
-          btnComp.classList.remove('btn-outline-warning'); btnComp.classList.add('btn-warning');
-          if(completionGenerated){ btnComp.disabled=false; btnComp.dataset.file='../'+s.certificate.file_path; btnComp.querySelector('[data-label="comp"]').textContent='View Completion'; btnEmailComp.classList.remove('d-none'); btnEmailComp.disabled=false; }
-          else { btnComp.disabled=false; btnComp.querySelector('[data-label="comp"]').textContent='Generate Completion'; }
-        } else {
-          btnComp.disabled=true; btnComp.querySelector('[data-label="comp"]').textContent='Completion Locked';
-        }
-        // Attendance gated
-        if(attendanceTemplateAssigned && s.complete){
-          btnAtt.classList.remove('d-none');
-          if(attendanceGenerated){ btnAtt.disabled=false; btnAtt.classList.remove('btn-outline-warning'); btnAtt.classList.add('btn-warning'); btnAtt.dataset.file='../'+s.attendance.certificate.file_path; btnAtt.querySelector('[data-label="att"]').textContent='View Attendance'; btnEmailAtt.classList.remove('d-none'); btnEmailAtt.disabled=false; }
-          else { btnAtt.disabled=false; btnAtt.classList.remove('btn-outline-warning'); btnAtt.classList.add('btn-warning'); btnAtt.querySelector('[data-label="att"]').textContent='Generate Attendance'; }
-        }
-      }
-
-      btnAtt.addEventListener('click', async ()=>{
-        if(btnAtt.dataset.file){ window.open(btnAtt.dataset.file,'_blank'); return; }
-        if(btnAtt.disabled) return;
-  btnAtt.disabled=true; setBusy('att',true); statusEl.innerHTML='<span class="text-light">Generating attendance certificate...</span>';
-        try {
-          const r = await fetch('../api/sub_department_certificate.php',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({department_id:deptId,kind:'attendance'})});
-          let j=null; try { j = await r.clone().json(); } catch(parseErr){ const raw=await r.text().catch(()=>'(no body)'); console.error('Attendance raw response:',raw); }
-          if(!r.ok || !j || !j.ok){
-            // Fallback reconciliation: maybe generated but response polluted by warnings
-            const follow = await fetchDepartmentCertificateStatus(deptId);
-            if(follow && follow.attendance && follow.attendance.certificate){
-              btnAtt.dataset.file='../'+follow.attendance.certificate.file_path; btnAtt.disabled=false; btnAtt.querySelector('[data-label="att"]').textContent='View Attendance'; statusEl.innerHTML='<span class="text-warning">Attendance generated (detected) despite response error.</span>'; btnEmailAtt.classList.remove('d-none'); btnEmailAtt.disabled=false; syncStatus();
-            } else {
-              btnAtt.disabled=false; statusEl.innerHTML='<span class="text-danger">'+(j && j.error?j.error:'Attendance generation failed')+'</span>';
-            }
-          } else {
-            btnAtt.dataset.file='../'+j.file_path; btnAtt.disabled=false; btnAtt.querySelector('[data-label="att"]').textContent='View Attendance'; statusEl.innerHTML='<span class="text-info">Attendance certificate generated.</span>'; btnEmailAtt.classList.remove('d-none'); btnEmailAtt.disabled=false; syncStatus();
-          }
-        } catch(e){
-          console.error('Attendance fetch error',e);
-          // Reconcile after network exception
-            const follow = await fetchDepartmentCertificateStatus(deptId).catch(()=>null);
-            if(follow && follow.attendance && follow.attendance.certificate){
-              btnAtt.dataset.file='../'+follow.attendance.certificate.file_path; btnAtt.disabled=false; btnAtt.querySelector('[data-label="att"]').textContent='View Attendance'; statusEl.innerHTML='<span class="text-warning">Attendance generated (detected) after network error.</span>'; btnEmailAtt.classList.remove('d-none'); btnEmailAtt.disabled=false; syncStatus();
-            } else {
-              btnAtt.disabled=false; statusEl.innerHTML='<span class="text-danger">Network error (attendance)</span>';
-            }
-        }
-  finally { setBusy('att',false); syncStatus(); }
-      });
-
-      // Completion generation/view
-      btnComp.addEventListener('click', async ()=>{
-        if(btnComp.dataset.file){ window.open(btnComp.dataset.file,'_blank'); return; }
-        if(btnComp.disabled || btnComp.textContent.includes('Locked')) return;
-  btnComp.disabled=true; setBusy('comp',true); statusEl.innerHTML='<span class="text-light">Generating completion certificate...</span>';
-        try {
-          const r = await fetch('../api/sub_department_certificate.php',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({department_id:deptId,kind:'completion'})});
-          let j=null; try { j = await r.clone().json(); } catch(parseErr){ const raw=await r.text().catch(()=>'(no body)'); console.error('Completion raw response:',raw); }
-          if(!r.ok || !j || !j.ok){
-            const follow = await fetchDepartmentCertificateStatus(deptId);
-            if(follow && follow.certificate){
-              btnComp.dataset.file='../'+follow.certificate.file_path; btnComp.disabled=false; btnComp.querySelector('[data-label="comp"]').textContent='View Completion'; statusEl.innerHTML='<span class="text-warning">Completion generated (detected) despite response error.</span>'; btnEmailComp.classList.remove('d-none'); btnEmailComp.disabled=false; syncStatus();
-            } else {
-              btnComp.disabled=false; statusEl.innerHTML='<span class="text-danger">'+(j && j.error?j.error:'Completion generation failed')+'</span>';
-            }
-          } else {
-            btnComp.dataset.file='../'+j.file_path; btnComp.disabled=false; btnComp.querySelector('[data-label="comp"]').textContent='View Completion'; statusEl.innerHTML='<span class="text-info">Completion certificate generated.</span>'; btnEmailComp.classList.remove('d-none'); btnEmailComp.disabled=false; syncStatus();
-          }
-        } catch(e){
-          console.error('Completion fetch error',e);
-            const follow = await fetchDepartmentCertificateStatus(deptId).catch(()=>null);
-            if(follow && follow.certificate){
-              btnComp.dataset.file='../'+follow.certificate.file_path; btnComp.disabled=false; btnComp.querySelector('[data-label="comp"]').textContent='View Completion'; statusEl.innerHTML='<span class="text-warning">Completion generated (detected) after network error.</span>'; btnEmailComp.classList.remove('d-none'); btnEmailComp.disabled=false; syncStatus();
-            } else {
-              btnComp.disabled=false; statusEl.innerHTML='<span class="text-danger">Network error (completion)</span>';
-            }
-        }
-  finally { setBusy('comp',false); syncStatus(); }
-      });
-      btnEmailAtt.addEventListener('click', async ()=>{
-        if(btnEmailAtt.disabled) return; const orig=btnEmailAtt.textContent; btnEmailAtt.textContent='Sending...'; btnEmailAtt.disabled=true;
-        try { const r=await fetch('../api/sub_department_attendance_certificate_email.php',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({department_id:deptId})}); const j=await r.json(); if(!r.ok||!j.ok){ btnEmailAtt.textContent=orig; btnEmailAtt.disabled=false; statusEl.innerHTML='<span class="text-danger">'+(j.error||'Attendance email failed')+'</span>'; return;} btnEmailAtt.textContent='Sent'; } catch(e){ btnEmailAtt.textContent=orig; btnEmailAtt.disabled=false; statusEl.innerHTML='<span class="text-danger">Network error email attendance</span>'; }
-      });
-      btnEmailComp.addEventListener('click', async ()=>{
-        if(btnEmailComp.disabled) return; const orig=btnEmailComp.textContent; btnEmailComp.textContent='Sending...'; btnEmailComp.disabled=true;
-        try { const r=await fetch('../api/sub_department_certificate_email.php',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({department_id:deptId})}); const j=await r.json(); if(!r.ok||!j.ok){ btnEmailComp.textContent=orig; btnEmailComp.disabled=false; statusEl.innerHTML='<span class="text-danger">'+(j.error||'Completion email failed')+'</span>'; return;} btnEmailComp.textContent='Sent'; } catch(e){ btnEmailComp.textContent=orig; btnEmailComp.disabled=false; statusEl.innerHTML='<span class="text-danger">Network error email completion</span>'; }
-      });
       if(focusDept && String(focusDept) === String(deptId)){
         focusElement = block.querySelector('.dept-header');
         // auto-open after status + speaker population
-        setTimeout(()=>{ focusElement?.click(); block.scrollIntoView({behavior:'smooth',block:'start'}); }, 120);
+  setTimeout(()=>{ if(focusElement){ focusElement.click(); block.scrollIntoView({behavior:'smooth',block:'start'}); } }, 120);
       }
     });
   }

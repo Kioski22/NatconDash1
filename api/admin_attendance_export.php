@@ -96,17 +96,32 @@ $out = fopen('php://output', 'w');
 fwrite($out, "\xEF\xBB\xBF");
 
 // Detect attendance columns dynamically
-$col = function(string $name) use ($db): bool {
-  $q = $db->query("SHOW COLUMNS FROM attendance LIKE '".$db->real_escape_string($name)."'");
-  $ok = $q && $q->num_rows>0; if($q) $q->close(); return $ok;
+$lookupColumn = function(array $names) use ($db): ?string {
+  foreach ($names as $name) {
+    $q = $db->query("SHOW COLUMNS FROM attendance LIKE '".$db->real_escape_string($name)."'");
+    if ($q && $q->num_rows>0) { $q->close(); return $name; }
+    if ($q) $q->close();
+  }
+  return null;
 };
-$createdExpr = $col('created_at') ? 'created_at' : ($col('created') ? 'created' : ($col('submitted_at') ? 'submitted_at' : "''"));
-$nameCol     = $col('attendee_name') ? 'attendee_name' : ($col('name') ? 'name' : "''");
-$emailCol    = $col('attendee_email') ? 'attendee_email' : ($col('email') ? 'email' : "''");
-$ipCol       = $col('ip_addr') ? 'ip_addr' : ($col('ip') ? 'ip' : "''");
-$uaCol       = $col('user_agent') ? 'user_agent' : ($col('ua') ? 'ua' : "''");
-$idColExists = $col('id');
-$orderExpr   = $createdExpr !== "''" ? $createdExpr : ($idColExists ? 'id' : '1');
+
+$qualify = function(?string $name) {
+  return $name ? ('a.`'.str_replace('`','``',$name).'`') : "''";
+};
+
+$createdCol = $lookupColumn(['created_at','created','submitted_at']);
+$nameCol    = $lookupColumn(['attendee_name','name']);
+$emailCol   = $lookupColumn(['attendee_email','email']);
+$ipCol      = $lookupColumn(['ip_addr','ip']);
+$uaCol      = $lookupColumn(['user_agent','ua']);
+$idCol      = $lookupColumn(['id']);
+
+$createdExpr = $qualify($createdCol);
+$nameExpr    = $qualify($nameCol);
+$emailExpr   = $qualify($emailCol);
+$ipExpr      = $qualify($ipCol);
+$uaExpr      = $qualify($uaCol);
+$orderExpr   = $createdCol ? $createdExpr : ($idCol ? 'a.`'.str_replace('`','``',$idCol).'`' : '1');
 
 // Determine additional user-input columns (beyond the base set) to include
 $allCols = [];
@@ -115,11 +130,11 @@ if ($res = $db->query("SHOW COLUMNS FROM attendance")) {
   $res->close();
 }
 $baseCols = [];
-if ($createdExpr !== "''") $baseCols[] = $createdExpr;
-if ($nameCol !== "''")     $baseCols[] = $nameCol;
-if ($emailCol !== "''")    $baseCols[] = $emailCol;
-if ($ipCol !== "''")       $baseCols[] = $ipCol;
-if ($uaCol !== "''")       $baseCols[] = $uaCol;
+if ($createdCol) $baseCols[] = $createdCol;
+if ($nameCol)    $baseCols[] = $nameCol;
+if ($emailCol)   $baseCols[] = $emailCol;
+if ($ipCol)      $baseCols[] = $ipCol;
+if ($uaCol)      $baseCols[] = $uaCol;
 
 // Exclude internal columns and those already represented in baseCols
 $exclude = array_merge(['id','day_number'], $baseCols);
@@ -131,22 +146,28 @@ foreach ($allCols as $c) {
 // Header row (attendance-only + all user-input columns)
 $header = [
   'Day ID', 'Day Label', 'Day Date', 'Recorded At',
-  'Attendee Name','Attendee Email','IP Address','User Agent'
+  'Attendee Name','Input Email','Account Email','IP Address','User Agent'
 ];
 foreach ($extraCols as $cname) { $header[] = $cname; }
 fputcsv($out, $header);
 
 // Query attendance rows for the mapped day_number, including extra columns
 $selectExtra = '';
-if (!empty($extraCols)) { $selectExtra = ', '.implode(', ', array_map(function($c) use ($db){ return '`'.str_replace('`','``',$c).'`'; }, $extraCols)); }
+if (!empty($extraCols)) {
+  $selectExtra = ', '.implode(', ', array_map(function($c) {
+    return 'a.`'.str_replace('`','``',$c).'`';
+  }, $extraCols));
+}
 
 $sql = "SELECT ".$createdExpr." AS created_at,
-               ".$nameCol." AS attendee_name,
-               ".$emailCol." AS attendee_email,
-               ".$ipCol." AS ip_addr,
-               ".$uaCol." AS user_agent".$selectExtra.
-       " FROM attendance
-        WHERE day_number = ".$dayIndex.
+               ".$nameExpr." AS attendee_name,
+               ".$emailExpr." AS input_email,
+               u.email AS account_email,
+               ".$ipExpr." AS ip_addr,
+               ".$uaExpr." AS user_agent".$selectExtra.
+       " FROM attendance a
+        LEFT JOIN users u ON u.id = a.user_id
+        WHERE a.day_number = ".$dayIndex.
        " ORDER BY ".$orderExpr." ASC";
 
 if ($rs = $db->query($sql)) {
@@ -157,7 +178,8 @@ if ($rs = $db->query($sql)) {
       (string)$r_day_date_pre,
       (string)($rec['created_at'] ?? ''),
       (string)($rec['attendee_name'] ?? ''),
-      (string)($rec['attendee_email'] ?? ''),
+      (string)($rec['input_email'] ?? ''),
+      (string)($rec['account_email'] ?? ''),
       (string)($rec['ip_addr'] ?? ''),
       (string)($rec['user_agent'] ?? ''),
     ];

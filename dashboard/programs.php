@@ -101,8 +101,15 @@ if ($_SERVER['REQUEST_METHOD']==='POST' && isset($_POST['attendance_submit'])) {
   .program-card { background:rgba(255,255,255,0.1); border:1px solid rgba(255,255,255,0.25); border-radius:14px; padding:28px 24px; transition:.3s; cursor:pointer; height:100%; position:relative; overflow:hidden; }
   .program-card:hover { transform:translateY(-6px); background:rgba(255,255,255,0.18); }
   .program-card h3 { font-weight:600; font-size:1.4rem; }
+  .program-card.no-hover { cursor:default; }
+  .program-card.no-hover:hover { transform:none; background:rgba(255,255,255,0.12); }
   .gradient-text { background: linear-gradient(135deg,#fff,#dbeafe); -webkit-background-clip:text; -webkit-text-fill-color:transparent; }
   .stretched-link { position:absolute; inset:0; z-index:3; }
+  .dept-cert-card { background:rgba(255,255,255,0.08); border:1px solid rgba(255,255,255,0.18); border-radius:12px; padding:20px 18px; margin-bottom:14px; transition:0.25s; }
+  .dept-cert-card:hover { border-color:rgba(255,255,255,0.32); }
+  .dept-cert-summary { font-size:0.9rem; }
+  .dept-cert-actions .btn { min-width:9.5rem; }
+  .dept-cert-alert { min-height:1.5rem; }
 </style>
 </head>
 <body>
@@ -397,6 +404,18 @@ if ($_SERVER['REQUEST_METHOD']==='POST' && isset($_POST['attendance_submit'])) {
           </div>
         </div>
       </div>
+      <div class="department-cert-section mt-5">
+        <div class="program-card no-hover" style="border:1px solid rgba(14,116,144,0.35);">
+          <div class="d-flex flex-wrap justify-content-between align-items-start gap-3">
+            <div>
+              <h3 class="mb-1" style="font-size:1.15rem;">Department Certificates</h3>
+              <p class="small opacity-75 mb-0">Generate Sub Program certificates when a technical department is fully complete.</p>
+            </div>
+            <button id="btnRefreshDeptCerts" class="btn btn-outline-light btn-sm rounded-pill" type="button">Refresh</button>
+          </div>
+          <div id="deptCertificatesList" class="mt-4"></div>
+        </div>
+      </div>
       <div class="mt-4"><a class="link-light small text-decoration-underline" href="programs.php">Change Day</a></div>
     </div>
   <?php endif; ?>
@@ -622,6 +641,302 @@ if ($_SERVER['REQUEST_METHOD']==='POST' && isset($_POST['attendance_submit'])) {
       } catch(err){ alertEl.innerHTML='<span class="text-danger">'+err.message+'</span>'; }
       btn.disabled=false; btn.textContent=orig; loadOverall();
     });
+    <?php if ($passDayId>0): ?>
+    const selectedDayId = <?= (int)$passDayId ?>;
+    const deptListEl = document.getElementById('deptCertificatesList');
+    const btnRefreshDeptCerts = document.getElementById('btnRefreshDeptCerts');
+    const deptCards = new Map();
+
+    function createDeptCard(model){
+      const deptId = Number(model.department_id || model.id || 0);
+      const card = document.createElement('div');
+      card.className = 'dept-cert-card';
+      card.dataset.deptId = String(deptId);
+
+      const header = document.createElement('div');
+      header.className = 'd-flex flex-wrap justify-content-between align-items-center gap-2';
+      const infoWrap = document.createElement('div');
+      const nameEl = document.createElement('h5');
+      nameEl.className = 'mb-1 text-light';
+      nameEl.textContent = (model.department_name || 'Department');
+      const subEl = document.createElement('div');
+      subEl.className = 'small opacity-75';
+      const speakerCount = Array.isArray(model.speakers) ? model.speakers.length : 0;
+      subEl.textContent = speakerCount + ' speaker' + (speakerCount === 1 ? '' : 's');
+      infoWrap.append(nameEl, subEl);
+      const badge = document.createElement('span');
+      badge.className = 'badge bg-secondary';
+      badge.textContent = 'Checking...';
+      header.append(infoWrap, badge);
+
+      const summaryEl = document.createElement('div');
+      summaryEl.className = 'dept-cert-summary text-light mt-2';
+      summaryEl.textContent = 'Checking status...';
+
+      const actionsEl = document.createElement('div');
+      actionsEl.className = 'dept-cert-actions d-flex flex-wrap gap-2 mt-3';
+
+      const generateBtn = document.createElement('button');
+      generateBtn.type = 'button';
+      generateBtn.className = 'btn btn-warning btn-sm fw-semibold';
+      generateBtn.textContent = 'Generate Certificate';
+      generateBtn.disabled = true;
+
+      const downloadBtn = document.createElement('button');
+      downloadBtn.type = 'button';
+      downloadBtn.className = 'btn btn-outline-light btn-sm d-none';
+      downloadBtn.textContent = 'Download PDF';
+      downloadBtn.dataset.url = '';
+
+      const emailBtn = document.createElement('button');
+      emailBtn.type = 'button';
+      emailBtn.className = 'btn btn-outline-info btn-sm d-none';
+      emailBtn.textContent = 'Email Certificate';
+
+      actionsEl.append(generateBtn, downloadBtn, emailBtn);
+
+      const alertEl = document.createElement('div');
+      alertEl.className = 'dept-cert-alert small mt-2 text-muted';
+      alertEl.textContent = '';
+
+      card.append(header, summaryEl, actionsEl, alertEl);
+
+      card._elements = { headerBadge: badge, summaryEl, generateBtn, downloadBtn, emailBtn, alertEl };
+      deptCards.set(deptId, card);
+
+      generateBtn.addEventListener('click', async () => {
+        const original = generateBtn.textContent;
+        generateBtn.disabled = true;
+        generateBtn.textContent = 'Generating...';
+        alertEl.className = 'dept-cert-alert small mt-2 text-info';
+        alertEl.textContent = 'Generating certificate...';
+        try {
+          const res = await fetch('../api/sub_department_certificate_issue.php', {
+            method: 'POST',
+            credentials: 'same-origin',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ department_id: deptId })
+          });
+          const raw = await res.text();
+          let data = {};
+          try { data = JSON.parse(raw); } catch (e) {}
+          if (!res.ok || !data.ok) {
+            throw new Error(data.error || 'Certificate generation failed');
+          }
+          alertEl.className = 'dept-cert-alert small mt-2 text-success';
+          alertEl.textContent = '';
+          const link = document.createElement('a');
+          link.className = 'link-light';
+          link.target = '_blank';
+          link.rel = 'noopener';
+          link.href = '../' + String(data.file_path || '').replace(/^\/+/,'');
+          link.textContent = 'Open PDF';
+          alertEl.append('Certificate ready: ', link);
+        } catch (err) {
+          alertEl.className = 'dept-cert-alert small mt-2 text-warning';
+          alertEl.textContent = err.message || 'Unable to generate certificate.';
+        }
+        generateBtn.textContent = original;
+        refreshDeptStatus(deptId);
+      });
+
+      downloadBtn.addEventListener('click', () => {
+        const url = downloadBtn.dataset.url;
+        if (url) window.open(url, '_blank');
+      });
+
+      emailBtn.addEventListener('click', async () => {
+        const original = emailBtn.textContent;
+        emailBtn.disabled = true;
+        emailBtn.textContent = 'Emailing...';
+        alertEl.className = 'dept-cert-alert small mt-2 text-info';
+        alertEl.textContent = 'Sending email...';
+        try {
+          const res = await fetch('../api/sub_department_certificate_email_issue.php', {
+            method: 'POST',
+            credentials: 'same-origin',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ department_id: deptId })
+          });
+            const raw = await res.text();
+            let data = null;
+            try { data = JSON.parse(raw); }
+            catch(e){ throw new Error('Invalid server response: ' + raw.replace(/\s+/g,' ').substring(0,200)); }
+            if (!res.ok || !data.ok) {
+              throw new Error(data.error || 'Unable to send email');
+            }
+          alertEl.className = 'dept-cert-alert small mt-2 text-success';
+          alertEl.textContent = 'Certificate emailed successfully.';
+        } catch (err) {
+          alertEl.className = 'dept-cert-alert small mt-2 text-warning';
+          alertEl.textContent = err.message || 'Email failed.';
+        }
+        emailBtn.textContent = original;
+        emailBtn.disabled = false;
+      });
+
+      return card;
+    }
+
+    async function refreshDeptStatus(deptId){
+      const card = deptCards.get(Number(deptId));
+      if (!card) return;
+      const { headerBadge, summaryEl, generateBtn, downloadBtn, emailBtn, alertEl } = card._elements;
+      summaryEl.textContent = 'Checking status...';
+      summaryEl.className = 'dept-cert-summary text-light mt-2';
+      headerBadge.className = 'badge bg-secondary';
+      headerBadge.textContent = 'Checking...';
+      generateBtn.disabled = true;
+  const params = new URLSearchParams({ department_id: String(deptId) });
+      try {
+        const res = await fetch('../api/sub_department_certificate_status.php?' + params.toString(), {
+          credentials: 'same-origin',
+          cache: 'no-store'
+        });
+        const raw = await res.text();
+        let data = null;
+        try { data = JSON.parse(raw); }
+        catch(e){ throw new Error('Invalid server response: ' + raw.replace(/\s+/g,' ').substring(0,200)); }
+        if (!res.ok || !data.ok) {
+          throw new Error(data.error || 'Status unavailable');
+        }
+        const summaryText = data.summary && data.summary.text ? data.summary.text : 'Status unavailable.';
+        summaryEl.textContent = summaryText;
+        const variant = data.summary && data.summary.variant ? String(data.summary.variant).toLowerCase() : 'light';
+        const variantClass = {
+          success: 'text-success',
+          warning: 'text-warning',
+          info: 'text-info',
+          danger: 'text-danger',
+          light: 'text-light',
+          muted: 'text-muted'
+        }[variant] || 'text-light';
+        summaryEl.className = 'dept-cert-summary ' + variantClass + ' mt-2';
+
+        const hasCert = !!(data.actions && data.actions.can_download && data.certificate && data.certificate.file_path);
+        if (hasCert) {
+          downloadBtn.classList.remove('d-none');
+          downloadBtn.dataset.url = '../' + String(data.certificate.file_path).replace(/^\/+/,'');
+          emailBtn.classList.remove('d-none');
+          emailBtn.disabled = false;
+          headerBadge.className = 'badge bg-success';
+          headerBadge.textContent = 'Issued';
+          if (!alertEl.textContent || alertEl.classList.contains('text-warning')) {
+            alertEl.className = 'dept-cert-alert small mt-2 text-success';
+            alertEl.textContent = 'Certificate issued.';
+          }
+        } else {
+          downloadBtn.classList.add('d-none');
+          downloadBtn.dataset.url = '';
+          emailBtn.classList.add('d-none');
+          emailBtn.disabled = true;
+          if (data.complete) {
+            if (data.template && data.template.assigned === false) {
+              headerBadge.className = 'badge bg-warning text-dark';
+              headerBadge.textContent = 'Awaiting Layout';
+            } else if (data.can_generate_now === false) {
+              headerBadge.className = 'badge bg-warning text-dark';
+              headerBadge.textContent = 'Locked';
+            } else {
+              headerBadge.className = 'badge bg-primary';
+              headerBadge.textContent = 'Ready';
+            }
+          } else {
+            headerBadge.className = 'badge bg-secondary';
+            headerBadge.textContent = 'In Progress';
+          }
+          if (data.blocked_reason) {
+            alertEl.className = 'dept-cert-alert small mt-2 text-warning';
+            alertEl.textContent = data.blocked_reason;
+          } else {
+            alertEl.className = 'dept-cert-alert small mt-2 text-muted';
+            alertEl.textContent = '';
+          }
+        }
+
+        const canGenerate = !!(data.actions && data.actions.can_generate);
+        generateBtn.disabled = !canGenerate;
+        if (!canGenerate) {
+          generateBtn.title = data.blocked_reason || 'Complete requirements to enable certificate generation.';
+        } else {
+          generateBtn.title = '';
+        }
+        card._lastStatus = data;
+      } catch (err) {
+        summaryEl.textContent = 'Unable to load status.';
+        summaryEl.className = 'dept-cert-summary text-danger mt-2';
+        alertEl.className = 'dept-cert-alert small mt-2 text-warning';
+        alertEl.textContent = err.message || 'Status refresh failed.';
+        generateBtn.disabled = true;
+        downloadBtn.classList.add('d-none');
+        emailBtn.classList.add('d-none');
+        emailBtn.disabled = true;
+        headerBadge.className = 'badge bg-danger';
+        headerBadge.textContent = 'Error';
+      }
+    }
+
+    async function loadDepartmentCertificates(opts={}){
+      if (!deptListEl) return;
+      const force = !!opts.force;
+      if (!force && deptCards.size > 0) {
+        const refreshes = [];
+        deptCards.forEach((_card, id) => { refreshes.push(refreshDeptStatus(id)); });
+        await Promise.allSettled(refreshes);
+        return;
+      }
+      deptCards.clear();
+      deptListEl.innerHTML = '<div class="small text-light opacity-75">Loading departments...</div>';
+      try {
+        const res = await fetch('../api/sub_program_departments.php?day_id=' + encodeURIComponent(selectedDayId), {
+          credentials: 'same-origin',
+          cache: 'no-store'
+        });
+        if (!res.ok) throw new Error('Failed to load departments');
+        const data = await res.json();
+        const list = Object.values(data.departments || {});
+        if (!list.length) {
+          deptListEl.innerHTML = '<div class="small opacity-75">No Sub Program departments available for this day yet.</div>';
+          return;
+        }
+        list.sort((a,b)=>{
+          const an = String(a.department_name || '').toLowerCase();
+          const bn = String(b.department_name || '').toLowerCase();
+          return an.localeCompare(bn);
+        });
+        deptListEl.innerHTML = '';
+        list.forEach(model => {
+          const deptKey = Number(model.department_id || model.id || 0);
+          model.department_id = deptKey;
+          const card = createDeptCard(model);
+          deptListEl.appendChild(card);
+          refreshDeptStatus(deptKey);
+        });
+      } catch (err) {
+        deptListEl.innerHTML = '<div class="small text-warning">' + (err.message || 'Unable to load departments right now.') + '</div>';
+      }
+    }
+
+    if (deptListEl) {
+      loadDepartmentCertificates();
+      btnRefreshDeptCerts?.addEventListener('click', () => {
+        if (!btnRefreshDeptCerts) return;
+        btnRefreshDeptCerts.disabled = true;
+        const original = btnRefreshDeptCerts.textContent;
+        btnRefreshDeptCerts.textContent = 'Refreshing...';
+        const jobs = [];
+        if (deptCards.size === 0) {
+          jobs.push(loadDepartmentCertificates({ force: true }));
+        } else {
+          deptCards.forEach((_card, id) => jobs.push(refreshDeptStatus(id)));
+        }
+        Promise.allSettled(jobs).finally(() => {
+          btnRefreshDeptCerts.disabled = false;
+          btnRefreshDeptCerts.textContent = original || 'Refresh';
+        });
+      });
+    }
+    <?php endif; ?>
     function selectDay(id, enabled){
       if(!enabled) return;
       window.location = 'programs.php?day_id=' + id;

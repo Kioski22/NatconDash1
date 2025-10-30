@@ -201,13 +201,18 @@ $number_left_pct  = clamp_pct($tpl['pos_cert_number_x']);
 $number_top_pct   = clamp_pct($tpl['pos_cert_number_y']);
 
 $placeholders = [
-  ['enabled'=>$show_awardee,'class'=>'awardee','left'=>$awardee_left_pct,'top'=>$awardee_top_pct,'text'=>$awardeeText,'fam'=>$faFam,'size'=>$faSize,'color'=>$faColor],
+  ['enabled'=>$show_awardee,'class'=>'awardee','left'=>$awardee_left_pct,'top'=>$awardee_top_pct,'text'=>$awardeeText,'fam'=>$faFam,'size'=>$faSize,'color'=>$faColor,'center_x'=>true],
   ['enabled'=>$show_seminar,'class'=>'seminar','left'=>$seminar_left_pct,'top'=>$seminar_top_pct,'text'=>$seminarText,'fam'=>$fsFam,'size'=>$fsSize,'color'=>$fsColor],
   ['enabled'=>$show_number,'class'=>'number','left'=>$number_left_pct,'top'=>$number_top_pct,'text'=>$cert_number,'fam'=>$fnFam,'size'=>$fnSize,'color'=>$fnColor],
 ];
 foreach ($placeholders as $ph) {
   if (!$ph['enabled']) continue;
-  $html .= '<div class="txt '.$ph['class'].'" style="left:'.$ph['left'].'%;top:'.$ph['top'].'%;font-family:'.esc($ph['fam']).';font-size:'.$ph['size'].'px;color:'.esc($ph['color']).';">'.esc($ph['text']).'</div>';
+  $left = isset($ph['center_x']) && $ph['center_x'] ? 50 : $ph['left'];
+  $style = 'left:'.$left.'%;top:'.$ph['top'].'%;font-family:'.esc($ph['fam']).';font-size:'.$ph['size'].'px;color:'.esc($ph['color']).';';
+  if (!empty($ph['center_x'])) {
+      $style .= 'transform:translateX(-50%);text-align:center;';
+  }
+  $html .= '<div class="txt '.$ph['class'].'" style="'.$style.'">'.esc($ph['text']).'</div>';
 }
 $html .= $sigHtml;
 $html .= '<div style="position:absolute;right:18px;bottom:14px;font-size:10px;color:#444;">Issued '.$issuedAt.'</div>';

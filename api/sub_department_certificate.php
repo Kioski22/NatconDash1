@@ -14,6 +14,7 @@ header('Content-Type: application/json; charset=utf-8');
 session_start();
 require_once __DIR__ . '/../db.php';
 require_once __DIR__ . '/../vendor/autoload.php';
+require_once __DIR__ . '/lib/sub_department_progress.php';
 use Dompdf\Dompdf;
 
 if (isset($conn) && $conn instanceof mysqli)      $db = $conn;
@@ -82,90 +83,6 @@ function fetch_department(mysqli $db, int $dept_id): ?array {
     return null;
 }
 
-// Compute progress (evaluations + quiz submissions) and return granular data.
-function compute_progress(mysqli $db, int $dept_id, int $user_id, string $user_email = ''): array {
-    $totalSpeakers = 0;
-    $evalCompleted = 0; $evalRemaining = [];
-    $quizTotal = 0; $quizCompleted = 0; $quizRemaining = [];
-    // Load sub program rules
-    $subMinScore    = (int)(get_setting($db,'sub_cert_min_score', get_setting($db,'cert_min_score','0')) ?: 0);
-    $requireQuiz    = (get_setting($db,'sub_cert_require_quiz', get_setting($db,'cert_require_quiz','1')) === '1');
-    $requireEval    = (get_setting($db,'sub_cert_require_eval', get_setting($db,'cert_require_eval','0')) === '1');
-    // Detect existence of quiz_questions table (legacy fallback)
-    $hasQuizQuestions = false;
-    if ($res = $db->query("SHOW TABLES LIKE 'quiz_questions'")) { $hasQuizQuestions = $res->num_rows > 0; $res->close(); }
-
-    if ($st = $db->prepare("SELECT id FROM speakers WHERE program_type='sub' AND technical_department_id=?")) {
-        $st->bind_param('i',$dept_id);
-        $st->execute();
-        $st->bind_result($spId);
-        while($st->fetch()) {
-            $totalSpeakers++;
-            // Evaluation status
-            $evalDone = false;
-            // By user_id
-            if ($chk = $db->prepare("SELECT 1 FROM speaker_evaluations WHERE speaker_id=? AND user_id=? LIMIT 1")) { $chk->bind_param('ii',$spId,$user_id); $chk->execute(); $chk->bind_result($d); if($chk->fetch()) $evalDone=true; $chk->close(); }
-            if (!$evalDone && $chk = $db->prepare("SELECT 1 FROM speaker_eval_responses WHERE speaker_id=? AND user_id=? LIMIT 1")) { $chk->bind_param('ii',$spId,$user_id); $chk->execute(); $chk->bind_result($dd); if($chk->fetch()) $evalDone=true; $chk->close(); }
-            // Email fallback (captures guest or pre-linked responses)
-            if (!$evalDone && $user_email !== '' && $chk = $db->prepare("SELECT 1 FROM speaker_evaluations WHERE speaker_id=? AND (user_email = ? OR email = ?) LIMIT 1")) { $chk->bind_param('iss',$spId,$user_email,$user_email); $chk->execute(); $chk->bind_result($de); if($chk->fetch()) $evalDone=true; $chk->close(); }
-            if (!$evalDone && $user_email !== '' && $chk = $db->prepare("SELECT 1 FROM speaker_eval_responses WHERE speaker_id=? AND (user_email = ? OR email = ?) LIMIT 1")) { $chk->bind_param('iss',$spId,$user_email,$user_email); $chk->execute(); $chk->bind_result($de2); if($chk->fetch()) $evalDone=true; $chk->close(); }
-            if ($evalDone) $evalCompleted++; else $evalRemaining[] = $spId;
-
-            // Quiz requirement detection
-            $hasQuiz = false; $userQuizDone = false; $quizId = 0;
-            if ($qst = $db->prepare("SELECT id FROM quizzes WHERE speaker_id=? LIMIT 1")) {
-                $qst->bind_param('i',$spId); $qst->execute(); $qst->bind_result($quizId); if ($qst->fetch()) { $hasQuiz = true; } $qst->close();
-            }
-            if (!$hasQuiz && $hasQuizQuestions) { // legacy fallback
-                if ($qq = $db->prepare("SELECT 1 FROM quiz_questions WHERE speaker_id=? LIMIT 1")) {
-                    $qq->bind_param('i',$spId); $qq->execute(); $qq->bind_result($d); if ($qq->fetch()) $hasQuiz = true; $qq->close();
-                }
-            }
-            if ($hasQuiz) {
-                $quizTotal++;
-                // If quiz is required, we must check PASS vs threshold; else presence counts as done when responded
-                $userHasResponse=false; $userScore=null;
-                if ($quizId > 0) {
-                    if ($qr = $db->prepare("SELECT score FROM quiz_responses WHERE quiz_id=? AND user_id=? LIMIT 1")) { $qr->bind_param('ii',$quizId,$user_id); $qr->execute(); $qr->bind_result($sc); if($qr->fetch()){ $userHasResponse=true; $userScore=(int)$sc; } $qr->close(); }
-                    if (!$userHasResponse && $user_email !== '' && $qrE = $db->prepare("SELECT score FROM quiz_responses WHERE quiz_id=? AND (user_email = ? OR email = ?) LIMIT 1")) { $qrE->bind_param('iss',$quizId,$user_email,$user_email); $qrE->execute(); $qrE->bind_result($scE); if($qrE->fetch()){ $userHasResponse=true; $userScore=(int)$scE; } $qrE->close(); }
-                }
-                if (!$userHasResponse) {
-                    if ($qr2 = $db->prepare("SELECT score FROM quiz_responses WHERE speaker_id=? AND user_id=? LIMIT 1")) { $qr2->bind_param('ii',$spId,$user_id); $qr2->execute(); $qr2->bind_result($sc); if($qr2->fetch()){ $userHasResponse=true; $userScore=(int)$sc; } $qr2->close(); }
-                    if (!$userHasResponse && $user_email !== '' && $qr2E = $db->prepare("SELECT score FROM quiz_responses WHERE speaker_id=? AND (user_email = ? OR email = ?) LIMIT 1")) { $qr2E->bind_param('iss',$spId,$user_email,$user_email); $qr2E->execute(); $qr2E->bind_result($scE2); if($qr2E->fetch()){ $userHasResponse=true; $userScore=(int)$scE2; } $qr2E->close(); }
-                }
-                $passed=false; if($userHasResponse){
-                    // Determine total gradable questions
-                    $totalGradable=0; $ansJson=null; $qJson=null;
-                    if($quizId>0){ if($qq=$db->prepare('SELECT answers,questions FROM quizzes WHERE id=? LIMIT 1')){ $qq->bind_param('i',$quizId); $qq->execute(); $qq->bind_result($ansJson,$qJson); if($qq->fetch()){} $qq->close(); } }
-                    if($ansJson){ $arr=json_decode((string)$ansJson,true); if(is_array($arr)) $totalGradable=count($arr); }
-                    if($totalGradable<=0 && $qJson){ $arr=json_decode((string)$qJson,true); if(is_array($arr)) $totalGradable=count($arr); }
-                    if($totalGradable>0){ $pct = ($userScore*100.0)/$totalGradable; $passed = ((int)round($pct) >= (int)$subMinScore); }
-                }
-                // Count as completed when: required -> must pass; optional -> must at least respond
-                $userQuizDone = $requireQuiz ? $passed : $userHasResponse;
-                if ($userQuizDone) $quizCompleted++; else $quizRemaining[] = $spId;
-            }
-        }
-        $st->close();
-    }
-    // Completed condition: if eval required -> all evaluations; if quiz required -> all quizzes passed
-    $evalOk = !$requireEval ? true : ($evalCompleted === $totalSpeakers);
-    $quizOk = !$requireQuiz ? true : ($quizCompleted === $quizTotal);
-    $complete = ($totalSpeakers>0 && $evalOk && $quizOk);
-    return [
-        'total'=>$totalSpeakers,
-        'completed'=>$evalCompleted, // backward compatibility (evaluations)
-        'remaining'=>$evalRemaining,
-        'complete'=>$complete,
-        'eval_total'=>$totalSpeakers,
-        'eval_completed'=>$evalCompleted,
-        'eval_remaining'=>$evalRemaining,
-        'quiz_total'=>$quizTotal,
-        'quiz_completed'=>$quizCompleted,
-        'quiz_remaining'=>$quizRemaining
-    ];
-}
-
 // Resolve department_id from request (dept or speaker)
 function resolve_department_id(mysqli $db, array $input): array {
     $dept_id = isset($input['department_id']) ? (int)$input['department_id'] : 0;
@@ -185,10 +102,12 @@ if ($method === 'GET') {
     $input = [
         'department_id' => isset($_GET['department_id']) ? (int)$_GET['department_id'] : 0,
         'speaker_id' => isset($_GET['speaker_id']) ? (int)$_GET['speaker_id'] : 0,
+        'day_id' => isset($_GET['day_id']) ? (int)$_GET['day_id'] : 0,
     ];
     [$dept_id,$dept,$err] = resolve_department_id($db,$input);
     if ($err) { http_response_code(400); echo json_encode(['ok'=>false,'error'=>$err]); exit; }
-    $progress = compute_progress($db,$dept_id,$user_id,$user_email);
+    $dayFilter = ($input['day_id'] ?? 0) > 0 ? (int)$input['day_id'] : null;
+    $progress = compute_progress($db,$dept_id,$user_id,$user_email,$dayFilter);
 
     // Include current rule flags in status for transparency
     $subRequireEval = (get_setting($db,'sub_cert_require_eval', get_setting($db,'cert_require_eval','0')) === '1');
@@ -234,14 +153,14 @@ if ($method === 'GET') {
                 'ok'=>true,
                 'department'=>['id'=>$dept_id,'name'=>$dept['name']],
                 'progress'=>$progress,
-                'complete'=>$progress['complete'],
+        'complete'=>$progress['complete'],
                 'certificate'=>$existing,
                 'completion_template_assigned'=>$completionTemplateAssigned,
                 'attendance'=>[
                     'template_assigned'=> $attTemplate ? true:false,
                     'certificate'=>$attExisting
                 ],
-                'rules'=>[ 'require_eval'=>$subRequireEval, 'require_quiz'=>$subRequireQuiz ]
+        'rules'=>[ 'require_eval'=>$subRequireEval, 'require_quiz'=>$subRequireQuiz ]
         ]);
     exit;
 }
@@ -252,7 +171,8 @@ $data = json_decode($raw,true) ?: [];
 [$dept_id,$dept,$err] = resolve_department_id($db,$data);
 if ($err) { http_response_code(400); echo json_encode(['ok'=>false,'error'=>$err]); exit; }
 
-$progress = compute_progress($db,$dept_id,$user_id,$user_email);
+$dayFilter = ($data['day_id'] ?? 0) > 0 ? (int)$data['day_id'] : null;
+$progress = compute_progress($db,$dept_id,$user_id,$user_email,$dayFilter);
 
 // Global gate (master enable or scheduled activation)
 $certEnabled = get_setting($db,'cert_generation_enabled','0');
@@ -378,7 +298,9 @@ function generate_attendance_certificate(mysqli $db, int $user_id, int $dept_id)
 
     $html='<!DOCTYPE html><html><head><meta charset="utf-8"><style>@page{margin:0;}html,body{margin:0;padding:0;} .page{position:relative;width:'.$imgW.'px;height:'.$imgH.'px;font-family:Helvetica,Arial,sans-serif;} .bg{position:absolute;left:0;top:0;width:100%;height:100%;} .txt{position:absolute;white-space:nowrap;line-height:1.15;font-weight:500;}</style></head><body><div class="page">';
     if($bgData) $html.='<img class="bg" src="'.htmlspecialchars($bgData).'" />';
-    if($showAwardee) $html.='<div class="txt" style="left:'.$ax.'%;top:'.$ay.'%;font-family:'.htmlspecialchars($faFam).';font-size:'.$faSizeAdj.'px;color:'.htmlspecialchars($faCol).';">'.htmlspecialchars($awardeeText).'</div>';
+    if($showAwardee) {
+        $html.='<div class="txt awardee" style="left:50%;top:'.$ay.'%;transform:translateX(-50%);text-align:center;font-family:'.htmlspecialchars($faFam).';font-size:'.$faSizeAdj.'px;color:'.htmlspecialchars($faCol).';">'.htmlspecialchars($awardeeText).'</div>';
+    }
     if($showSeminar) $html.='<div class="txt" style="left:'.$sx.'%;top:'.$sy.'%;font-family:'.htmlspecialchars($fsFam).';font-size:'.$fsSize.'px;color:'.htmlspecialchars($fsCol).';">'.htmlspecialchars($seminarText).'</div>';
     if($showNumber) $html.='<div class="txt" style="left:'.$nx.'%;top:'.$ny.'%;font-family:'.htmlspecialchars($fnFam).';font-size:'.$fnSize.'px;color:'.htmlspecialchars($fnCol).';">'.htmlspecialchars($certNumber).'</div>';
     $html.=$sigHtml;
@@ -548,10 +470,8 @@ if ($layoutRow && (!empty($layoutRow['bg_url']) || !empty($layoutRow['user_name_
     $fuFam = $layoutRow['font_user_name_family'] ?? 'Helvetica';
     $fuSize = (int)($layoutRow['font_user_name_size_px'] ?? 40);
     $fuCol  = $layoutRow['font_user_name_color'] ?? '#000000';
-    // Hard-coded coordinates for user name placement (percentages relative to background)
-    // Adjust these values to reposition the user name text.
-    $ux = 44.0; // <-- change X position here (percentage from left)
-    $uy = 52.0; // <-- change Y position here (percentage from top)
+    // Always center the participant name horizontally while allowing vertical adjustments via template data.
+    $uy = isset($layoutRow['pos_user_name_y']) ? (float)$layoutRow['pos_user_name_y'] : 52.0;
 
     // Signatures layer
     $sigHtml='';
@@ -576,7 +496,7 @@ if ($layoutRow && (!empty($layoutRow['bg_url']) || !empty($layoutRow['user_name_
     $html='<!DOCTYPE html><html><head><meta charset="utf-8"><style>@page{margin:0;}html,body{margin:0;padding:0;} .page{position:relative;width:'.$imgW.'px;height:'.$imgH.'px;font-family:Helvetica,Arial,sans-serif;overflow:hidden;} .bg{position:absolute;left:0;top:0;width:100%;height:100%;} .txt{position:absolute;white-space:nowrap;line-height:1.15;font-weight:500;} .txt.multiline{white-space:pre-wrap;} .speakers{max-width:70%;}</style></head><body>';
     $html.='<div class="page">';
     if($bgData){ $html.='<img class="bg" src="'.esc($bgData).'"/>'; }
-    $html.='<div class="txt" style="left:'.$ux.'%;top:'.$uy.'%;font-family:'.esc($fuFam).';font-size:'.$fuSizeAdj.'px;color:'.esc($fuCol).';">'.esc($txtUser).'</div>';
+    $html.='<div class="txt awardee" style="left:50%;top:'.$uy.'%;transform:translateX(-50%);text-align:center;font-family:'.esc($fuFam).';font-size:'.$fuSizeAdj.'px;color:'.esc($fuCol).';">'.esc($txtUser).'</div>';
     $html.=$sigHtml;
     $html.='<div style="position:absolute;right:14px;bottom:10px;font-size:11px;color:#444;">Issued '.esc($issuedAt).'</div>';
     $html.='</div></body></html>';
