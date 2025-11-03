@@ -1,143 +1,176 @@
 <?php
-// Send the user's Overall Main Program certificate via email (generate or reuse).
-// POST (optionally with JSON {regenerate:1, send_only:1}) or GET (?regenerate=1)
-// Returns JSON { ok, sent, file_path, cert_number, version, regenerated }
+// Email the user's Main Program Attendance certificate (generate if needed)
+// POST (optionally JSON: {regenerate:1}) or GET (?regenerate=1)
+// Response: { ok, sent, file_path, cert_number, regenerated }
+
+// Suppress warnings that could interfere with JSON output in cpanel
+error_reporting(E_ERROR | E_PARSE);
+ini_set('display_errors', 0);
+
+// Clean any existing output and start fresh
+while (ob_get_level()) { ob_end_clean(); }
+ob_start();
 
 header('Content-Type: application/json; charset=utf-8');
+
+// Check if we should use cpanel-specific database
+$db_file = file_exists(__DIR__ . '/../db.cpanel.php') ? 
+    __DIR__ . '/../db.cpanel.php' : 
+    __DIR__ . '/../db.php';
+
 session_start();
-require_once __DIR__ . '/../db.php';
+require_once $db_file;
+
+// Check vendor autoload exists
+if (!file_exists(__DIR__ . '/../vendor/autoload.php')) {
+    http_response_code(500);
+    echo json_encode(['ok'=>false,'error'=>'Dependencies not installed']);
+    exit;
+}
 require_once __DIR__ . '/../vendor/autoload.php';
-use PHPMailer\PHPMailer\PHPMailer; use PHPMailer\PHPMailer\Exception;
 
-if (!isset($_SESSION['user_id']) || (int)$_SESSION['user_id']<=0) { http_response_code(401); echo json_encode(['ok'=>false,'error'=>'Not authenticated']); exit; }
-$user_id = (int)$_SESSION['user_id'];
-$db = isset($conn) && $conn instanceof mysqli ? $conn : (isset($mysqli)&&$mysqli instanceof mysqli ? $mysqli : null);
-if(!$db){ http_response_code(500); echo json_encode(['ok'=>false,'error'=>'DB unavailable']); exit; }
+use PHPMailer\PHPMailer\PHPMailer; 
+use PHPMailer\PHPMailer\Exception;
 
-// Helper to call generation endpoint logic internally (avoid HTTP round-trip)
-function obtain_certificate(mysqli $db, int $user_id, bool $forceRegen=false): array {
-    // We replicate minimal logic by including the generation script in-process would cause double headers; instead we re-run required portions.
-    // We'll call the generation endpoint via internal include capturing output, passing regenerate flag through POST body simulation.
-    $tmpInput = ['regenerate' => $forceRegen ? 1 : 0];
-    $json = json_encode($tmpInput);
-    // Use a temporary stream wrapper technique: set a global var consumed by generation file reading php://input
-    // Simpler approach: directly query the DB for existing row then if needed include generation file after setting a global override for raw body.
-    // To keep it simple & robust, just perform an HTTP-like fetch using local file include after defining a shim for file_get_contents('php://input').
-    // But overriding built-in functions is complex; instead, we will duplicate minimal logic: check completion, load template, reuse code path if already implemented.
+// Check for Dompdf
+if (!class_exists('Dompdf\\Dompdf')) {
+    http_response_code(500);
+    echo json_encode(['ok'=>false,'error'=>'PDF generation library not available']);
+    exit;
+}
+use Dompdf\Dompdf;
 
-    // Re-run the aggregate logic from main_program_certificate.php (duplicated for isolation)
-    $speakers=[]; $hasQQ=false; 
-    $res = $db->query("SELECT s.id,s.name FROM speakers s JOIN function_rooms fr ON fr.id=s.room_id WHERE (s.program_type IS NULL OR LOWER(s.program_type)<>'sub')");
-    if($res){ while($row=$res->fetch_assoc()) $speakers[]=['id'=>(int)$row['id'],'name'=>$row['name']]; $res->close(); }
-    if(!$speakers) return ['ok'=>false,'error'=>'No speakers found'];
-    if($chk=$db->query("SHOW TABLES LIKE 'quiz_questions'")){ $hasQQ=$chk->num_rows>0; $chk->close(); }
-    $total=count($speakers); $evalCompleted=0; $quizRequired=0; $quizCompleted=0; $missing=[];
-    foreach($speakers as $sp){ $sid=$sp['id']; $sname=$sp['name']; $evalDone=false; $quizDone=false; $requiresQuiz=false; $quizId=0;
-        if($q=$db->prepare('SELECT id FROM quizzes WHERE speaker_id=? LIMIT 1')){ $q->bind_param('i',$sid); $q->execute(); $q->bind_result($quizId); if($q->fetch()) $requiresQuiz=true; $q->close(); }
-        if(!$requiresQuiz && $hasQQ){ if($q2=$db->prepare('SELECT 1 FROM quiz_questions WHERE speaker_id=? LIMIT 1')){ $q2->bind_param('i',$sid); $q2->execute(); $q2->bind_result($d); if($q2->fetch()) $requiresQuiz=true; $q2->close(); }}
-        if($requiresQuiz) $quizRequired++;
-        if($requiresQuiz){ if($quizId>0){ if($qr=$db->prepare('SELECT 1 FROM quiz_responses WHERE quiz_id=? AND user_id=? LIMIT 1')){ $qr->bind_param('ii',$quizId,$user_id); $qr->execute(); $qr->bind_result($d); if($qr->fetch()) $quizDone=true; $qr->close(); }} if(!$quizDone){ if($qr2=$db->prepare('SELECT 1 FROM quiz_responses WHERE speaker_id=? AND user_id=? LIMIT 1')){ $qr2->bind_param('ii',$sid,$user_id); $qr2->execute(); $qr2->bind_result($d); if($qr2->fetch()) $quizDone=true; $qr2->close(); }} }
-        if($quizDone) $quizCompleted++;
-  if($ev=$db->prepare('SELECT 1 FROM speaker_evaluations WHERE speaker_id=? AND user_id=? LIMIT 1')){ $ev->bind_param('ii',$sid,$user_id); $ev->execute(); $ev->bind_result($d); if($ev->fetch()) $evalDone=true; $ev->close(); }
-  if(!$evalDone && $ev2=$db->prepare('SELECT 1 FROM speaker_eval_responses WHERE speaker_id=? AND user_id=? LIMIT 1')){ $ev2->bind_param('ii',$sid,$user_id); $ev2->execute(); $ev2->bind_result($dd); if($ev2->fetch()) $evalDone=true; $ev2->close(); }
-        if($evalDone) $evalCompleted++;
-        if(!$evalDone || ($requiresQuiz && !$quizDone)) { $missing[]=['speaker_id'=>$sid,'speaker_name'=>$sname]; }
-    }
-    $complete = ($evalCompleted===$total && $quizCompleted===$quizRequired);
-    if(!$complete) return ['ok'=>false,'error'=>'Main Program incomplete'];
-
-    // Fetch existing row
-    $existing=null; if($st=$db->prepare('SELECT file_path,cert_number,template_id,template_updated_at,version FROM main_program_certificates WHERE user_id=? LIMIT 1')){ $st->bind_param('i',$user_id); $st->execute(); $existing=$st->get_result()->fetch_assoc(); $st->close(); }
-
-    // Load current template meta for freshness decision
-    $tpl=null; if($st=$db->prepare("SELECT id,updated_at FROM certificates WHERE LOWER(type)='main_program_overall' ORDER BY updated_at DESC,id DESC LIMIT 1")){ $st->execute(); $tpl=$st->get_result()->fetch_assoc(); $st->close(); }
-    if(!$tpl) return ['ok'=>false,'error'=>'Template not set'];
-    $tplId=(int)$tpl['id']; $tplUpdated=$tpl['updated_at']; $tplUpdatedTs=$tplUpdated?strtotime($tplUpdated):0;
-    $regenNeeded = false;
-    if($existing){
-        $exTplId=(int)($existing['template_id']??0); $exTplUpdatedTs = isset($existing['template_updated_at']) && $existing['template_updated_at']? strtotime($existing['template_updated_at']):0;
-        $regenNeeded = $forceRegen || ($tplId && $tplId!==$exTplId) || ($tplUpdatedTs>$exTplUpdatedTs);
-        if(!$regenNeeded){
-            return ['ok'=>true,'file_path'=>$existing['file_path'],'cert_number'=>$existing['cert_number'],'version'=>(int)$existing['version'],'regenerated'=>false];
-        }
-    }
-    // If regeneration or none exists, call generation endpoint properly to avoid duplicating full PDF logic.
-    // We'll perform an internal HTTP-like call using cURL to self (works if server accessible) else fallback to include.
-    // Simpler: perform a POST fetch using file_get_contents with stream context to same script. Determine base URL relative path.
-    $self = __DIR__ . '/main_program_certificate.php';
-    // Provide regenerate flag by setting $_GET for the include
-    $_GET['regenerate'] = '1';
-    // Buffer output
-    ob_start();
-    include $self; // script will echo JSON and exit. We cannot continue after include if it exits.
-    // If script exited we will never reach here. If not, capture.
-    $raw = ob_get_clean();
-    $parsed = json_decode($raw,true);
-    if(!is_array($parsed)) return ['ok'=>false,'error'=>'Generation call failed'];
-    return $parsed;
+// Clear any unwanted output that may have been generated during includes
+$unwanted_output = ob_get_contents();
+if (!empty($unwanted_output)) {
+    ob_clean();
 }
 
-$forceRegen = false; $sendOnly=false; $rawBody=file_get_contents('php://input'); if($rawBody){ $in=json_decode($rawBody,true); if(is_array($in)){ if(!empty($in['regenerate'])) $forceRegen=true; if(!empty($in['send_only'])) $sendOnly=true; }}
+if (!isset($_SESSION['user_id']) || (int)$_SESSION['user_id']<=0) { 
+    http_response_code(401); 
+    echo json_encode(['ok'=>false,'error'=>'Not authenticated']); 
+    exit; 
+}
+$user_id = (int)$_SESSION['user_id'];
+$db = isset($conn) && $conn instanceof mysqli ? $conn : (isset($mysqli)&&$mysqli instanceof mysqli ? $mysqli : null);
+if(!$db){ 
+    http_response_code(500); 
+    echo json_encode(['ok'=>false,'error'=>'DB unavailable']); 
+    exit; 
+}
+
+$forceRegen=false; $raw=file_get_contents('php://input'); if($raw){ $in=json_decode($raw,true); if(is_array($in) && !empty($in['regenerate'])) $forceRegen=true; }
 if(isset($_GET['regenerate']) && $_GET['regenerate']=='1') $forceRegen=true;
 
+// Compute attendance progress (mirrors logic in main_program_attendance_certificate.php)
 $getSetting = function(mysqli $db, string $key, $default=null){ if(!$st=$db->prepare('SELECT setting_value FROM admin_settings WHERE setting_key=? LIMIT 1')) return $default; $st->bind_param('s',$key); $st->execute(); $st->bind_result($val); $out=$default; if($st->fetch()){ $out=$val; } $st->close(); return $out; };
 $certEnabled = ((int)($getSetting($db,'cert_generation_enabled','0') ?? '0') === 1);
 $autoEnableStr = (string)($getSetting($db,'cert_auto_enable_date','') ?? ''); if(strpos($autoEnableStr,'T')!==false){ $autoEnableStr=str_replace('T',' ',$autoEnableStr); }
 $autoEnableTs = $autoEnableStr!=='' ? @strtotime($autoEnableStr) : null; $canGenerateNow = $certEnabled || ($autoEnableTs !== null && time() >= $autoEnableTs);
+$days=[]; if($res=$db->query("SELECT id,label,day_date,is_enabled FROM function_room_days ORDER BY day_date ASC")){ while($row=$res->fetch_assoc()) $days[]=$row; $res->close(); }
+$dayNumberById=[]; foreach($days as $i=>$d){ $dayNumberById[(int)$d['id']]=$i+1; }
+$today=date('Y-m-d'); $requiredDayNumbers=[]; $futureDayNumbers=[];
+foreach($days as $d){ $dn=$dayNumberById[(int)$d['id']]??null; if(!$dn) continue; $date=$d['day_date']; $enabled=(int)$d['is_enabled']===1; if(!$enabled) continue; if($date && $date <= $today){ $requiredDayNumbers[]=$dn; } else { $futureDayNumbers[]=$dn; } }
+$requiredDayNumbers=array_values(array_unique($requiredDayNumbers));
+$attended=[]; if($st=$db->prepare('SELECT day_number FROM attendance WHERE user_id=?')){ $st->bind_param('i',$user_id); $st->execute(); $st->bind_result($dn); while($st->fetch()) $attended[]=(int)$dn; $st->close(); }
+$attended=array_unique($attended);
+$hasAnyAttendance = count($attended) > 0;
+$missingRequired=array_values(array_diff($requiredDayNumbers,$attended));
+$incomplete=count($missingRequired)>0; $relaxedAllowed = !$incomplete || empty(array_diff($missingRequired,$futureDayNumbers));
 if(!$canGenerateNow){ http_response_code(403); echo json_encode(['ok'=>false,'error'=>'Certificate generation is not yet enabled','activation_at'=>$autoEnableStr]); exit; }
+if(!$hasAnyAttendance){ http_response_code(403); echo json_encode(['ok'=>false,'error'=>'At least one attendance submission is required']); exit; }
+if($incomplete && !$relaxedAllowed){ http_response_code(403); echo json_encode(['ok'=>false,'error'=>'Attendance incomplete','missing'=>$missingRequired,'required_days'=>$requiredDayNumbers]); exit; }
 
-$cert = obtain_certificate($db,$user_id,$forceRegen);
-if(!$cert || empty($cert['ok'])){ http_response_code(400); echo json_encode(['ok'=>false,'error'=>$cert['error']??'Unable to obtain certificate']); exit; }
+// Ensure certificate table exists
+@$db->query("CREATE TABLE IF NOT EXISTS main_program_attendance_certificates (\n  id INT AUTO_INCREMENT PRIMARY KEY,\n  user_id INT NOT NULL UNIQUE,\n  file_path VARCHAR(255) NOT NULL,\n  cert_number VARCHAR(120) DEFAULT NULL,\n  generated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,\n  KEY idx_user(user_id)\n) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
 
-// If send_only flag was passed, don't resend email each time unless forced
-// Proceed to email
+// Fetch existing
+$existing=null; if($st=$db->prepare('SELECT file_path, cert_number FROM main_program_attendance_certificates WHERE user_id=? LIMIT 1')){ $st->bind_param('i',$user_id); $st->execute(); $existing=$st->get_result()->fetch_assoc(); $st->close(); }
+
+// Load template
+$tpl=null; if($st=$db->prepare("SELECT * FROM certificates WHERE LOWER(type)='main_program_attendance' ORDER BY updated_at DESC,id DESC LIMIT 1")){ $st->execute(); $tpl=$st->get_result()->fetch_assoc(); $st->close(); }
+if(!$tpl){ http_response_code(404); echo json_encode(['ok'=>false,'error'=>'Attendance certificate template not set']); exit; }
+
+// Maybe reuse existing if not forcing regeneration
+if($existing && !$forceRegen && $existing['file_path'] && file_exists(__DIR__.'/../'.$existing['file_path'])){
+  $cert=['file_path'=>$existing['file_path'],'cert_number'=>$existing['cert_number'],'regenerated'=>false];
+} else {
+  // Re-generate (embed generation logic similar to main_program_attendance_certificate.php)
+  function esc($s){ return htmlspecialchars((string)$s,ENT_QUOTES|ENT_SUBSTITUTE,'UTF-8'); }
+  function file_to_data_uri($rel){ $abs=__DIR__.'/../'.$rel; if(!is_file($abs)) return ''; $data=@file_get_contents($abs); if($data===false) return ''; $mime=str_ends_with(strtolower($rel),'.png')?'image/png':'image/jpeg'; return 'data:'.$mime.';base64,'.base64_encode($data); }
+  $bg_rel=$tpl['bg_url']; $bg_uri=$bg_rel?file_to_data_uri($bg_rel):''; $imgW=1600; $imgH=1131; if($bg_rel){ $absBg=__DIR__.'/../'.$bg_rel; if(is_file($absBg)){ $info=@getimagesize($absBg); if($info){ $imgW=(int)$info[0]; $imgH=(int)$info[1]; } }} if($imgW>2400){ $scale=2400/$imgW; $imgW=(int)round($imgW*$scale); $imgH=(int)round($imgH*$scale); }
+  $paperWpt=$imgW*72/96; $paperHpt=$imgH*72/96; $issuedAt=date('Y-m-d H:i');
+  // Cert number
+  $rawFmt = $tpl['cert_number_format'] ?? 'MPA-{YYYY}-{SEQ4}-{USER_ID}';
+  $seq=1; if($c=$db->prepare('SELECT COUNT(*) FROM main_program_attendance_certificates')){ $c->execute(); $c->bind_result($cnt); if($c->fetch()) $seq=(int)$cnt+1; $c->close(); }
+  $repl=[ '{YYYY}'=>date('Y'), '{YY}'=>date('y'), '{MM}'=>date('m'), '{DD}'=>date('d'), '{USER_ID}'=>$user_id ];
+  if(preg_match_all('/\{SEQ(\d+)\}/',$rawFmt,$m,PREG_SET_ORDER)){ foreach($m as $match){ $w=(int)$match[1]; $repl[$match[0]]=str_pad($seq,$w,'0',STR_PAD_LEFT); } }
+  $cert_number=strtr($rawFmt,$repl);
+  // Awardee & seminar
+  $user_name='Participant'; if($st=$db->prepare('SELECT name FROM users WHERE id=? LIMIT 1')){ $st->bind_param('i',$user_id); $st->execute(); $st->bind_result($user_name); $st->fetch(); $st->close(); }
+  $awardeeTemplate = $tpl['cert_awardee_name'] ?: '{USER_NAME}';
+  $awardee=str_replace(['{USER_NAME}','{NAME}','{FULL_NAME}'],$user_name,$awardeeTemplate);
+  $awardee=str_replace(['{CERT_NUMBER}'],$cert_number,$awardee);
+  $seminarTitle = $tpl['seminar_title'] ?: 'Main Program Attendance';
+  $seminarTitle=str_replace(['{CERT_NUMBER}'],$cert_number,$seminarTitle);
+  $seminarTitle=str_replace(['{TOTAL_DAYS}'], (string)max(count($requiredDayNumbers), count($days)), $seminarTitle);
+  $show_awardee=(int)$tpl['show_awardee']===1; $show_seminar=(int)$tpl['show_seminar']===1; $show_number=(int)$tpl['show_number']===1;
+  $awardee_left=(float)$tpl['pos_cert_awardee_name_x']; $awardee_top=(float)$tpl['pos_cert_awardee_name_y']; $seminar_left=(float)$tpl['pos_seminar_title_x']; $seminar_top=(float)$tpl['pos_seminar_title_y']; $num_left=(float)$tpl['pos_cert_number_x']; $num_top=(float)$tpl['pos_cert_number_y'];
+  $faFam=$tpl['font_awardee_family']??'Helvetica'; $faSize=(int)($tpl['font_awardee_size_px']??46); if($faSize<6)$faSize=6; if($faSize>200)$faSize=200; $faColor=$tpl['font_awardee_color']??'#000000';
+  $fsFam=$tpl['font_seminar_family']??'Helvetica'; $fsSize=(int)($tpl['font_seminar_size_px']??24); if($fsSize<6)$fsSize=6; if($fsSize>200)$fsSize=200; $fsColor=$tpl['font_seminar_color']??'#000000';
+  $fnFam=$tpl['font_number_family']??'Helvetica'; $fnSize=(int)($tpl['font_number_size_px']??16); if($fnSize<6)$fnSize=6; if($fnSize>200)$fnSize=200; $fnColor=$tpl['font_number_color']??'#000000';
+  $sigHtml=''; if(isset($tpl['id'])){ $cid=(int)$tpl['id']; if($sig=$db->prepare('SELECT signature_url,pos_x,pos_y,width_pct FROM certificate_signatures WHERE certificate_id=? AND enabled=1')){ $sig->bind_param('i',$cid); $sig->execute(); $rs=$sig->get_result(); while($row=$rs->fetch_assoc()){ $sUri=file_to_data_uri($row['signature_url']); if($sUri){ $sx=(float)$row['pos_x']; $sy=(float)$row['pos_y']; $sw=(float)$row['width_pct']; $sigHtml.='<img src="'.esc($sUri).'" style="position:absolute;left:'.$sx.'%;top:'.$sy.'%;width:'.$sw.'%;height:auto;" />'; } } $sig->close(); } }
+  $html='<!DOCTYPE html><html><head><meta charset="utf-8"><style>@page{margin:0;}html,body{margin:0;padding:0;} .page{position:relative;width:'.$imgW.'px;height:'.$imgH.'px;} .bg{position:absolute;left:0;top:0;width:100%;height:100%;} .txt{position:absolute;white-space:nowrap;}</style></head><body><div class="page">'; if($bg_uri){ $html.='<img class="bg" src="'.esc($bg_uri).'" />'; }
+  if($show_awardee){ $html.='<div class="txt awardee" style="left:50%;top:'.$awardee_top.'%;transform:translateX(-50%);text-align:center;font-family:'.esc($faFam).';font-size:'.$faSize.'px;color:'.esc($faColor).';font-weight:600;">'.esc($awardee).'</div>'; }
+  if($show_seminar){ $html.='<div class="txt" style="left:'.$seminar_left.'%;top:'.$seminar_top.'%;font-family:'.esc($fsFam).';font-size:'.$fsSize.'px;color:'.esc($fsColor).';">'.esc($seminarTitle).'</div>'; }
+  if($show_number){ $html.='<div class="txt" style="left:'.$num_left.'%;top:'.$num_top.'%;font-family:'.esc($fnFam).';font-size:'.$fnSize.'px;color:'.esc($fnColor).';">'.esc($cert_number).'</div>'; }
+  $html.=$sigHtml; $html.='<div style="position:absolute;right:16px;bottom:12px;font-size:10px;color:#333;">Issued '.$issuedAt.'</div></div></body></html>';
+  $dompdf=new Dompdf([ 'defaultFont'=>'Helvetica' ]); $dompdf->setPaper([0,0,$paperWpt,$paperHpt]); $dompdf->loadHtml($html,'UTF-8'); $dompdf->render();
+  $outDir=__DIR__.'/../uploads/certificates/generated'; if(!is_dir($outDir)) @mkdir($outDir,0775,true); $fileName='main_attendance_u'.$user_id.'_'.substr(sha1($cert_number.random_bytes(4)),0,8).'.pdf'; $abs=$outDir.'/'.$fileName; file_put_contents($abs,$dompdf->output()); $rel='uploads/certificates/generated/'.$fileName;
+  if($ins=$db->prepare('INSERT INTO main_program_attendance_certificates (user_id,file_path,cert_number) VALUES (?,?,?) ON DUPLICATE KEY UPDATE file_path=VALUES(file_path), cert_number=VALUES(cert_number), generated_at=NOW()')){ $ins->bind_param('iss',$user_id,$rel,$cert_number); $ins->execute(); $ins->close(); }
+  $cert=['file_path'=>$rel,'cert_number'=>$cert_number,'regenerated'=> (bool)$existing];
+}
+
+// Email sending
 $email=''; $name=''; if($st=$db->prepare('SELECT email,name FROM users WHERE id=? LIMIT 1')){ $st->bind_param('i',$user_id); $st->execute(); $st->bind_result($email,$name); $st->fetch(); $st->close(); }
 if(!$email){ http_response_code(400); echo json_encode(['ok'=>false,'error'=>'User email not found','certificate'=>$cert]); exit; }
+$absPath = __DIR__.'/../'.$cert['file_path']; if(!file_exists($absPath)){ http_response_code(404); echo json_encode(['ok'=>false,'error'=>'Certificate file missing','certificate'=>$cert]); exit; }
 
-$file_path = $cert['file_path'] ?? null; if(!$file_path || !file_exists(__DIR__.'/../'.$file_path)){ http_response_code(404); echo json_encode(['ok'=>false,'error'=>'Certificate file missing on disk','certificate'=>$cert]); exit; }
-$abs = realpath(__DIR__.'/../'.$file_path);
-
-// Mail configuration helper
 $get = fn($p,$f='') => getenv($p) ?: ($f?getenv($f):'');
-$cfg = [
+$cfg=[
   'host'=>$get('MAIL_HOST','SMTP_HOST'),
   'user'=>$get('MAIL_USERNAME','SMTP_USER'),
   'pass'=>$get('MAIL_PASSWORD','SMTP_PASS'),
-  'port'=>(int)($get('MAIL_PORT','SMTP_PORT') ?: 587),
-  'from_addr'=>$get('MAIL_FROM_ADDRESS','SMTP_FROM') ?: 'noreply@example.com',
-  'from_name'=>$get('MAIL_FROM_NAME','SMTP_FROM_NAME') ?: 'Natcon Dashboard',
-  'enc'=>strtolower($get('MAIL_ENCRYPTION','SMTP_SECURE') ?: 'tls'),
-  'debug'=>(int)(getenv('MAIL_DEBUG') ?: 0),
-  'allow_alias'=>(int)(getenv('MAIL_ALLOW_ALIAS') ?: getenv('SMTP_ALLOW_ALIAS') ?: 0),
+  'port'=>(int)($get('MAIL_PORT','SMTP_PORT')?:587),
+  'from_addr'=>$get('MAIL_FROM_ADDRESS','SMTP_FROM')?:'noreply@example.com',
+  'from_name'=>$get('MAIL_FROM_NAME','SMTP_FROM_NAME')?:'Natcon Dashboard',
+  'enc'=>strtolower($get('MAIL_ENCRYPTION','SMTP_SECURE')?:'tls'),
+  'debug'=>(int)(getenv('MAIL_DEBUG')?:0),
+  'allow_alias'=>(int)(getenv('MAIL_ALLOW_ALIAS')?:getenv('SMTP_ALLOW_ALIAS')?:0),
 ];
+if($cfg['host']===''||$cfg['user']===''||$cfg['pass']===''){ http_response_code(500); echo json_encode(['ok'=>false,'error'=>'Mail server not configured','certificate'=>$cert]); exit; }
 
-if($cfg['host']===''||$cfg['user']===''||$cfg['pass']===''){
-  http_response_code(500);
-  echo json_encode(['ok'=>false,'error'=>'Mail server not configured (host/user/pass missing)','certificate'=>$cert]);
-  exit;
-}
-
-$appEnv = strtolower(getenv('APP_ENV') ?: ''); $forceDebug = ($cfg['debug']>0)||$appEnv==='local'||isset($_GET['diag']);
-
-$mail = new PHPMailer(true);
+$appEnv=strtolower(getenv('APP_ENV')?:''); $forceDebug=($cfg['debug']>0)||$appEnv==='local'||isset($_GET['diag']);
+$mail=new PHPMailer(true);
 try{
   $mail->isSMTP(); $mail->Host=$cfg['host']; $mail->SMTPAuth=true; $mail->Username=$cfg['user']; $mail->Password=$cfg['pass'];
-  if(in_array($cfg['enc'],['tls','starttls'],true)) $mail->SMTPSecure=PHPMailer::ENCRYPTION_STARTTLS; elseif(in_array($cfg['enc'],['ssl','smtps'],true)){ $mail->SMTPSecure=PHPMailer::ENCRYPTION_SMTPS; if($cfg['port']===587) $cfg['port']=465; } else $mail->SMTPSecure=false;
-  $mail->Port=$cfg['port'];
+  if(in_array($cfg['enc'],['tls','starttls'],true)) $mail->SMTPSecure=PHPMailer::ENCRYPTION_STARTTLS; elseif(in_array($cfg['enc'],['ssl','smtps'],true)){ $mail->SMTPSecure=PHPMailer::ENCRYPTION_SMTPS; if($cfg['port']===587) $cfg['port']=465; } else $mail->SMTPSecure=false; $mail->Port=$cfg['port'];
   if($forceDebug){ $mail->SMTPDebug=2; $dbg=''; $mail->Debugoutput=function($str,$lvl) use (&$dbg){ $dbg.="[L$lvl] $str\n"; }; }
   $authDom=strtolower(substr(strrchr($cfg['user'],'@')?:'',1)); $fromDom=strtolower(substr(strrchr($cfg['from_addr'],'@')?:'',1));
   if($cfg['host']==='smtp.gmail.com' && $authDom && $fromDom && $authDom!==$fromDom && !$cfg['allow_alias']){ $mail->setFrom($cfg['user'],$cfg['from_name'].' (via)'); $mail->addReplyTo($cfg['from_addr'],$cfg['from_name']); } else { $mail->setFrom($cfg['from_addr'],$cfg['from_name']); }
-  $display = trim($name) ?: $email; $mail->addAddress($email,$display);
-  $mail->Subject='Your Overall Main Program Certificate';
-  $mail->Body = "Dear $display,\n\nAttached is your Overall Main Program Certificate.\nCertificate No: ".($cert['cert_number']??'N/A')."\n\nThank you.";
-  $mail->addAttachment($abs, basename($file_path));
+  $display=trim($name)?:$email; $mail->addAddress($email,$display);
+  $mail->Subject='Your Main Program Attendance Certificate';
+  $mail->Body="Dear $display,\n\nAttached is your Main Program Attendance Certificate.\nCertificate No: ".($cert['cert_number']??'N/A')."\n\nThank you.";
+  $mail->addAttachment($absPath, basename($cert['file_path']));
   $mail->send();
-  $resp=['ok'=>true,'sent'=>true,'file_path'=>$file_path,'cert_number'=>$cert['cert_number']??null,'version'=>$cert['version']??null,'regenerated'=>$cert['regenerated']??false];
-  if($forceDebug){ unset($cfg['pass']); $resp['debug']=$dbg??''; $resp['config']=$cfg; }
+  $resp=['ok'=>true,'sent'=>true,'file_path'=>$cert['file_path'],'cert_number'=>$cert['cert_number'],'regenerated'=>$cert['regenerated']]; if($forceDebug){ unset($cfg['pass']); $resp['debug']=$dbg??''; $resp['config']=$cfg; }
   echo json_encode($resp);
-} catch(Exception $e){
-  $err=$mail->ErrorInfo ?: $e->getMessage(); $lc=strtolower($err); $class='unknown';
-  if(str_contains($lc,'authenticate')) $class='auth_failed'; elseif(str_contains($lc,'connect')) $class='connect_failed'; elseif(str_contains($lc,'invalid address')) $class='invalid_address';
+}catch(Exception $e){
+  $err=$mail->ErrorInfo ?: $e->getMessage(); $lc=strtolower($err); $class='unknown'; if(str_contains($lc,'authenticate')) $class='auth_failed'; elseif(str_contains($lc,'connect')) $class='connect_failed'; elseif(str_contains($lc,'invalid address')) $class='invalid_address';
   http_response_code(500); $resp=['ok'=>false,'error'=>'Failed to send email','smtp_error'=>$err,'classification'=>$class,'certificate'=>$cert]; if($forceDebug){ unset($cfg['pass']); $resp['config']=$cfg; }
   echo json_encode($resp);
 }
+
+// Clean up output buffer and ensure no extra content
+ob_end_flush();
+?>

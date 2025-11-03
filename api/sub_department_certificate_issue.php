@@ -2,13 +2,7 @@
 // Generate (or fetch existing) Sub Program department completion certificate.
 // POST JSON { department_id, day_id?, regenerate? }
 
-session_start();
 header('Content-Type: application/json; charset=utf-8');
-if (function_exists('ini_set')) {
-    ini_set('display_errors', '0');
-    ini_set('display_startup_errors', '0');
-}
-error_reporting(E_ALL & ~E_WARNING & ~E_NOTICE & ~E_DEPRECATED & ~E_STRICT);
 session_start();
 
 require_once __DIR__ . '/../db.php';
